@@ -26,14 +26,23 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.1'
+        cache-dependency-path: |
+          receiver/opcua/go.sum
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: ${{ matrix.language }}
         queries: security-and-quality
 
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v3
+    - name: Build
+      run: |
+        cd receiver/opcua
+        go build -v ./...
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
