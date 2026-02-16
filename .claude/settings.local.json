@@ -15,7 +15,8 @@
       "Bash(chmod:*)",
       "Bash(bash add_headers.sh)",
       "Bash(ls:*)",
-      "Bash(go work sync:*)"
+      "Bash(go work sync:*)",
+      "Bash(go get:*)"
     ]
   }
 }

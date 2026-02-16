@@ -32,31 +32,32 @@ jobs:
         working-directory: receiver/opcua
         run: go mod download
 
-      - name: Download OCB
+      - name: Install OCB
         run: |
-          curl -L -o ocb https://github.com/open-telemetry/opentelemetry-collector/releases/download/cmd%2Fbuilder%2Fv0.145.0/ocb_0.145.0_linux_amd64
-          chmod +x ocb
+          go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
+          # Add to PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Build for multiple platforms
         run: |
           # Build for Linux AMD64
-          ./ocb --config builder-config.yaml
+          builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-amd64
 
           # Build for Linux ARM64
-          GOARCH=arm64 ./ocb --config builder-config.yaml
+          GOARCH=arm64 builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-arm64
 
           # Build for Windows AMD64
-          GOOS=windows ./ocb --config builder-config.yaml
+          GOOS=windows builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev.exe otelcol-dev/otelcol-opcua-windows-amd64.exe
 
           # Build for macOS AMD64
-          GOOS=darwin GOARCH=amd64 ./ocb --config builder-config.yaml
+          GOOS=darwin GOARCH=amd64 builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-darwin-amd64
 
           # Build for macOS ARM64
-          GOOS=darwin GOARCH=arm64 ./ocb --config builder-config.yaml
+          GOOS=darwin GOARCH=arm64 builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-darwin-arm64
 
       - name: Create checksums

@@ -24,8 +24,10 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v1.63.4
           working-directory: receiver/opcua
+          skip-cache: false
+          args: --timeout=5m
 
   test:
     name: Test
@@ -87,13 +89,16 @@ jobs:
         run: go mod download
         shell: bash
 
-      - name: Download OCB
+      - name: Install OCB
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
-            curl -L -o ocb https://github.com/open-telemetry/opentelemetry-collector/releases/download/cmd%2Fbuilder%2Fv0.145.0/ocb_0.145.0_linux_amd64
-            chmod +x ocb
+            go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
+            # Create symlink for backward compatibility
+            ln -sf $(go env GOPATH)/bin/builder ./ocb
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            curl -L -o ocb.exe https://github.com/open-telemetry/opentelemetry-collector/releases/download/cmd%2Fbuilder%2Fv0.145.0/ocb_0.145.0_windows_amd64.exe
+            go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
+            # Copy to current directory for backward compatibility
+            cp $(go env GOPATH)/bin/builder.exe ./ocb.exe
           fi
         shell: bash
 
