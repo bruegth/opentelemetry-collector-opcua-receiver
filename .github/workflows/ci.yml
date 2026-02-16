@@ -21,13 +21,14 @@ jobs:
           cache-dependency-path: |
             receiver/opcua/go.sum
 
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.63.4
-          working-directory: receiver/opcua
-          skip-cache: false
-          args: --timeout=5m
+        working-directory: receiver/opcua
+        run: golangci-lint run --timeout=5m
 
   test:
     name: Test
@@ -54,6 +55,7 @@ jobs:
       - name: Run tests
         working-directory: receiver/opcua
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+        shell: bash
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -105,11 +107,13 @@ jobs:
       - name: Build collector
         run: |
           if [ "$RUNNER_OS" == "Linux" ]; then
-            ./ocb --config builder-config.yaml
+            GOWORK=off ./ocb --config builder-config.yaml
           elif [ "$RUNNER_OS" == "Windows" ]; then
-            ./ocb.exe --config builder-config.yaml
+            GOWORK=off ./ocb.exe --config builder-config.yaml
           fi
         shell: bash
+        env:
+          GOWORK: off
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

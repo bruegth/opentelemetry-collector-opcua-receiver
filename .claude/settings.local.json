@@ -16,7 +16,8 @@
       "Bash(bash add_headers.sh)",
       "Bash(ls:*)",
       "Bash(go work sync:*)",
-      "Bash(go get:*)"
+      "Bash(go get:*)",
+      "Bash(GOWORK=off go install:*)"
     ]
   }
 }
