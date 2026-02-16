@@ -386,23 +386,3 @@ func (c *opcuaClient) resolveBrowsePath(path string) (*ua.NodeID, error) {
 // 1. Call the GetRecords method on the LogObject (OPC UA Part 26)
 // 2. Handle ContinuationPoints for pagination
 // 3. Parse the returned ExtensionObject array
-func (c *opcuaClient) readLogRecords(ctx context.Context, logObjectID *ua.NodeID, startTime, endTime time.Time, maxRecords int) ([]testdata.OPCUALogRecord, error) {
-	// Since most OPC UA servers don't implement Part 26 yet, and implementing
-	// a full GetRecords method call requires extensive OPC UA ExtensionObject parsing,
-	// we'll return a placeholder implementation here.
-
-	// In a production system, you would:
-	// 1. Build a CallMethodRequest to invoke GetRecords on the LogObject
-	// 2. Parse the response ExtensionObject array into LogRecord structures
-	// 3. Handle pagination via ContinuationPoints
-
-	// For now, return empty records with a warning
-	c.logger.Debug("GetRecords method not fully implemented - returning empty records",
-		zap.String("node_id", logObjectID.String()),
-		zap.Time("start_time", startTime),
-		zap.Time("end_time", endTime),
-		zap.Int("max_records", maxRecords))
-
-	// Return empty slice - in production, this would contain actual log records
-	return []testdata.OPCUALogRecord{}, nil
-}

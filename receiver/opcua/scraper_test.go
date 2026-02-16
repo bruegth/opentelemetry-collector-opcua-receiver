@@ -182,7 +182,11 @@ func TestScraperIntegrationPagination(t *testing.T) {
 	mockClient := testdata.NewMockClient(mockServer, logger)
 	err = mockClient.Connect(ctx)
 	require.NoError(t, err)
-	defer mockClient.Disconnect(ctx)
+	defer func() {
+		if err := mockClient.Disconnect(ctx); err != nil {
+			t.Logf("Failed to disconnect mock client: %v", err)
+		}
+	}()
 
 	// Create scraper
 	transformer := NewTransformer(mockServer.Endpoint())
@@ -223,7 +227,11 @@ func TestScraperIntegrationFiltering(t *testing.T) {
 
 	err := mockServer.Start(ctx)
 	require.NoError(t, err)
-	defer mockServer.Stop(ctx)
+	defer func() {
+		if err := mockServer.Stop(ctx); err != nil {
+			t.Logf("Failed to stop mock server: %v", err)
+		}
+	}()
 
 	// Add records with different severities
 	now := time.Now()
@@ -250,7 +258,11 @@ func TestScraperIntegrationFiltering(t *testing.T) {
 	mockClient := testdata.NewMockClient(mockServer, logger)
 	err = mockClient.Connect(ctx)
 	require.NoError(t, err)
-	defer mockClient.Disconnect(ctx)
+	defer func() {
+		if err := mockClient.Disconnect(ctx); err != nil {
+			t.Logf("Failed to disconnect mock client: %v", err)
+		}
+	}()
 
 	transformer := NewTransformer(mockServer.Endpoint())
 	settings := componenttest.NewNopTelemetrySettings()
