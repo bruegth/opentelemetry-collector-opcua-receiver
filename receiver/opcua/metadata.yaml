@@ -1,0 +1,51 @@
+type: opcua
+
+status:
+  class: receiver
+  stability:
+    alpha: [logs]
+  distributions: []
+  codeowners:
+    active: [bruegth]
+  warnings:
+    - This receiver is in alpha and subject to change
+
+tests:
+  config:
+    endpoint: opc.tcp://localhost:4840
+    log_object_paths:
+      - Objects/ServerLog
+    collection_interval: 30s
+
+resource_attributes:
+  opcua.server.endpoint:
+    description: The OPC UA server endpoint URL
+    type: string
+    enabled: true
+  opcua.server.application_uri:
+    description: The OPC UA server ApplicationURI
+    type: string
+    enabled: false
+  service.name:
+    description: Service name derived from the OPC UA server
+    type: string
+    enabled: true
+  telemetry.sdk.name:
+    description: The name of the telemetry SDK
+    type: string
+    enabled: true
+  telemetry.sdk.language:
+    description: The language of the telemetry SDK
+    type: string
+    enabled: true
+
+attributes:
+  opcua.source:
+    description: The source component or module that generated the log
+    type: string
+  opcua.event_id:
+    description: Event identifier from OPC UA log
+    type: int
+  opcua.category:
+    description: Log category or classification
+    type: string

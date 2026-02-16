@@ -1,0 +1,168 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: |
+            receiver/opcua/go.sum
+
+      - name: Sync workspace dependencies
+        run: go work sync
+
+      - name: Download dependencies
+        working-directory: receiver/opcua
+        run: go mod download
+
+      - name: Install OCB
+        run: |
+          go install go.opentelemetry.io/collector/cmd/builder@v0.145.0
+          # Add to PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Build for multiple platforms
+        run: |
+          # Build for Linux AMD64
+          GOWORK=off builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-amd64
+
+          # Build for Linux ARM64
+          GOWORK=off GOARCH=arm64 builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-arm64
+
+          # Build for Windows AMD64
+          GOWORK=off GOOS=windows builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev.exe otelcol-dev/otelcol-opcua-windows-amd64.exe
+
+          # Build for macOS AMD64
+          GOWORK=off GOOS=darwin GOARCH=amd64 builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-darwin-amd64
+
+          # Build for macOS ARM64
+          GOWORK=off GOOS=darwin GOARCH=arm64 builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-darwin-arm64
+        env:
+          GOWORK: off
+
+      - name: Create checksums
+        run: |
+          cd otelcol-dev
+          sha256sum otelcol-opcua-* > checksums.txt
+          cat checksums.txt
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          echo "## What's Changed" > release_notes.md
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> release_notes.md
+          echo "" >> release_notes.md
+          echo "## Installation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "Download the appropriate binary for your platform and verify the checksum:" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "\`\`\`bash" >> release_notes.md
+          echo "sha256sum -c checksums.txt" >> release_notes.md
+          echo "\`\`\`" >> release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            otelcol-dev/otelcol-opcua-*
+            otelcol-dev/checksums.txt
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-go-pkg:
+    name: Publish to pkg.go.dev
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.1'
+          cache-dependency-path: |
+            receiver/opcua/go.sum
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Verify Go module
+        working-directory: receiver/opcua
+        run: |
+          go mod verify
+          go mod tidy
+          git diff --exit-code go.mod go.sum || echo "No changes needed"
+
+      - name: Trigger pkg.go.dev indexing
+        run: |
+          # pkg.go.dev automatically indexes public Go modules from GitHub
+          # We can trigger it by making a request to the proxy
+          echo "Triggering pkg.go.dev to index version ${{ steps.version.outputs.VERSION }}"
+
+          # Request the module through the Go proxy to trigger indexing
+          curl -f "https://proxy.golang.org/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/@v/${{ steps.version.outputs.VERSION }}.info" || true
+
+          # Also request the latest version
+          curl -f "https://proxy.golang.org/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/@latest" || true
+
+          echo "Module should appear on pkg.go.dev within a few minutes at:"
+          echo "https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua"
+
+      - name: Comment on release with pkg.go.dev link
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.version.outputs.VERSION }}';
+            const body = `## 📦 Go Package Published
+
+            This release is now available on pkg.go.dev:
+
+            **Module**: [\`github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua\`](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
+
+            **Installation**:
+            \`\`\`bash
+            go get github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua@${version}
+            \`\`\`
+
+            📚 [View Documentation](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
+            `;
+
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: version
+            });
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              body: release.data.body + '\n\n' + body
+            });

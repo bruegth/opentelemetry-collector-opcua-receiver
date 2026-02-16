@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:opentelemetry.io)",
+      "WebFetch(domain:reference.opcfoundation.org)",
+      "WebFetch(domain:github.com)",
+      "Bash(go mod tidy:*)",
+      "Bash(go test:*)",
+      "Bash(.\\\\ocb.exe:*)",
+      "Bash(./ocb.exe:*)",
+      "Bash(go build:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(head:*)",
+      "Bash(chmod:*)",
+      "Bash(bash add_headers.sh)",
+      "Bash(ls:*)",
+      "Bash(go work sync:*)",
+      "Bash(go get:*)",
+      "Bash(GOWORK=off go install:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}
