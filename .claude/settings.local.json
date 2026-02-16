@@ -13,7 +13,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(head:*)",
       "Bash(chmod:*)",
-      "Bash(bash add_headers.sh)"
+      "Bash(bash add_headers.sh)",
+      "Bash(ls:*)",
+      "Bash(go work sync:*)"
     ]
   }
 }
