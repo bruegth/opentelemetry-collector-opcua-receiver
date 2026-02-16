@@ -1,0 +1,33 @@
+dist:
+  name: otelcol-dev
+  description: Basic OTel Collector distribution for Developers
+  output_path: ./otelcol-dev
+
+exporters:
+  - gomod:
+      go.opentelemetry.io/collector/exporter/debugexporter v0.145.0
+  - gomod:
+      go.opentelemetry.io/collector/exporter/otlpexporter v0.145.0
+
+processors:
+  - gomod:
+      go.opentelemetry.io/collector/processor/batchprocessor v0.145.0
+
+receivers:
+  - gomod:
+      go.opentelemetry.io/collector/receiver/otlpreceiver v0.145.0
+  - import: github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua
+    gomod: github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua v0.0.1
+    path: ./receiver/opcua
+
+providers:
+  - gomod:
+      go.opentelemetry.io/collector/confmap/provider/envprovider v1.48.0
+  - gomod:
+      go.opentelemetry.io/collector/confmap/provider/fileprovider v1.48.0
+  - gomod:
+      go.opentelemetry.io/collector/confmap/provider/httpprovider v1.48.0
+  - gomod:
+      go.opentelemetry.io/collector/confmap/provider/httpsprovider v1.48.0
+  - gomod:
+      go.opentelemetry.io/collector/confmap/provider/yamlprovider v1.48.0

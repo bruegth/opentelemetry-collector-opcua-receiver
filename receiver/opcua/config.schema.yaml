@@ -1,0 +1,131 @@
+type: object
+description: OPC UA receiver configuration
+properties:
+  endpoint:
+    type: string
+    description: OPC UA server endpoint URL (e.g., opc.tcp://localhost:4840)
+    pattern: ^opc\.tcp://.*
+
+  security_policy:
+    type: string
+    description: Security policy to use
+    enum:
+      - None
+      - Basic256
+      - Basic256Sha256
+      - Aes128_Sha256_RsaOaep
+      - Aes256_Sha256_RsaPss
+    default: None
+
+  security_mode:
+    type: string
+    description: Security mode to use
+    enum:
+      - None
+      - Sign
+      - SignAndEncrypt
+    default: None
+
+  auth:
+    type: object
+    description: Authentication configuration
+    properties:
+      type:
+        type: string
+        description: Authentication type
+        enum:
+          - anonymous
+          - username_password
+          - certificate
+        default: anonymous
+      username:
+        type: string
+        description: Username for username_password authentication
+      password:
+        type: string
+        description: Password for username_password authentication
+      cert_file:
+        type: string
+        description: Path to certificate file for certificate authentication
+      key_file:
+        type: string
+        description: Path to private key file for certificate authentication
+
+  log_object_paths:
+    type: array
+    description: Paths to LogObject nodes (can be NodeID format or browse paths)
+    items:
+      type: string
+    default:
+      - Objects/ServerLog
+    minItems: 1
+
+  collection_interval:
+    type: string
+    description: Interval between log collections (e.g., 30s, 1m)
+    pattern: ^\d+(ns|us|µs|ms|s|m|h)$
+    default: 30s
+
+  max_records_per_call:
+    type: integer
+    description: Maximum number of records to retrieve per GetRecords call
+    minimum: 1
+    maximum: 10000
+    default: 1000
+
+  filter:
+    type: object
+    description: Log filtering configuration
+    properties:
+      min_severity:
+        type: string
+        description: Minimum severity level to collect
+        enum:
+          - Trace
+          - Debug
+          - Info
+          - Warn
+          - Warning
+          - Error
+          - Fatal
+          - Emergency
+        default: Info
+      max_log_records:
+        type: integer
+        description: Maximum number of log records to collect per scrape
+        minimum: 1
+        maximum: 100000
+        default: 10000
+
+  connection_timeout:
+    type: string
+    description: Timeout for establishing connection
+    pattern: ^\d+(ns|us|µs|ms|s|m|h)$
+    default: 30s
+
+  request_timeout:
+    type: string
+    description: Timeout for individual requests
+    pattern: ^\d+(ns|us|µs|ms|s|m|h)$
+    default: 10s
+
+  tls:
+    type: object
+    description: TLS configuration
+    properties:
+      insecure_skip_verify:
+        type: boolean
+        description: Skip TLS certificate verification (not recommended for production)
+        default: false
+      ca_file:
+        type: string
+        description: Path to CA certificate file
+      cert_file:
+        type: string
+        description: Path to client certificate file
+      key_file:
+        type: string
+        description: Path to client private key file
+
+required:
+  - endpoint
