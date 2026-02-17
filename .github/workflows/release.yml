@@ -50,7 +50,12 @@ jobs:
 
           # Build for Windows AMD64
           GOWORK=off GOOS=windows builder --config builder-config.yaml
-          mv otelcol-dev/otelcol-dev.exe otelcol-dev/otelcol-opcua-windows-amd64.exe
+          # Cross-compiling on Linux may not add .exe; handle both cases
+          if [ -f otelcol-dev/otelcol-dev.exe ]; then
+            mv otelcol-dev/otelcol-dev.exe otelcol-dev/otelcol-opcua-windows-amd64.exe
+          else
+            mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-windows-amd64.exe
+          fi
 
           # Build for macOS AMD64
           GOWORK=off GOOS=darwin GOARCH=amd64 builder --config builder-config.yaml
