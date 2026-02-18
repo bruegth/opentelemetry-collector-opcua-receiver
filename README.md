@@ -1,10 +1,10 @@
 # OpenTelemetry Collector OPC UA Receiver
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua.svg)](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver)](https://go.dev/)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Stability: Alpha](https://img.shields.io/badge/stability-alpha-orange.svg)](CONTRIBUTING.md)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver)
+[![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
 
 An OpenTelemetry Collector receiver for collecting logs from OPC UA servers implementing the LogObject specification (OPC UA Part 26).
 
@@ -140,11 +140,21 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 │   ├── receiver.go          # Receiver lifecycle
 │   ├── scraper.go           # Log collection logic
 │   ├── client.go            # OPC UA client wrapper
+│   ├── get_records.go       # GetRecords method call & parsing
+│   ├── log_record_type.go   # ExtensionObject codec for LogRecord
 │   ├── transformer.go       # Data transformation
 │   ├── *_test.go            # Unit tests
-│   ├── testserver/          # Test utilities
+│   ├── testdata/            # Test utilities & mock server
 │   ├── metadata.yaml        # Receiver metadata
 │   └── README.md            # Receiver documentation
+├── testserver/              # C# OPC UA test server (Part 26)
+│   ├── Program.cs           # Server entry point
+│   ├── TestNodeManager.cs   # GetRecords method implementation
+│   ├── LogRecordData.cs     # 10 fixed test records
+│   ├── Dockerfile           # Container image
+│   ├── ci-collector-config.yaml  # OTel collector config for E2E tests
+│   ├── validate.sh          # E2E output validation script
+│   └── expected/            # Expected test data
 ├── builder-config.yaml      # Collector builder configuration
 ├── config.yaml              # Runtime configuration
 ├── go.work                  # Go workspace file
@@ -294,6 +304,7 @@ This project uses GitHub Actions for continuous integration and delivery:
 - **Build & Test**: Runs on every push and pull request
 - **Linting**: Code quality checks
 - **Coverage**: Test coverage reporting
+- **E2E Test**: Runs C# OPC UA test server + OTel collector in Docker, validates file export output
 - **Release**: Automated releases on tags
 
 See [.github/workflows/](.github/workflows/) for workflow definitions.
@@ -392,12 +403,12 @@ For more troubleshooting, see [receiver/opcua/README.md](receiver/opcua/README.m
 
 ## Roadmap
 
-- [ ] Full OPC UA Part 26 LogObject compliance
+- [x] OPC UA Part 26 GetRecords method call with ExtensionObject decoding
+- [x] ContinuationPoint pagination for large log sets
+- [x] E2E integration testing with C# OPC UA test server
 - [ ] Subscription-based log collection (in addition to polling)
-- [ ] ContinuationPoint pagination for large log sets
 - [ ] Enhanced filtering capabilities
 - [ ] Performance metrics and monitoring
-- [ ] Support for multiple concurrent LogObject nodes
 - [ ] Beta stability
 
 ## License

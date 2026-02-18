@@ -1,0 +1,29 @@
+services:
+  testserver:
+    build:
+      context: ./testserver
+      dockerfile: Dockerfile
+    ports:
+      - "4840:4840"
+    healthcheck:
+      test: ["CMD-SHELL", "true"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  otelcol:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      testserver:
+        condition: service_healthy
+    volumes:
+      - ./testserver/ci-collector-config.yaml:/otelcol/collector-config.yaml:ro
+      - otel-output:/output
+    # Override the default config
+    command: ["--config", "/otelcol/collector-config.yaml"]
+
+volumes:
+  otel-output:

@@ -57,3 +57,53 @@ bin/
 
 # Docker
 *.dockerfile~
+e2e-output.json
+
+# Build results
+testserver/[Dd]ebug/
+testserver/[Dd]ebugPublic/
+testserver/[Rr]elease/
+testserver/[Rr]eleases/
+testserver/x64/
+testserver/x86/
+testserver/[Ww][Ii][Nn]32/
+testserver/[Aa][Rr][Mm]/
+testserver/[Aa][Rr][Mm]64/
+testserver/bld/
+testserver/[Bb]in/
+testserver/[Oo]bj/
+testserver/[Ll]og/
+testserver/[Ll]ogs/
+
+# .NET Core
+testserver/project.lock.json
+testserver/project.fragment.lock.json
+testserver/artifacts/
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# NuGet Packages
+*.nupkg
+# NuGet Symbol Packages
+*.snupkg
+
+# dotenv environment variables file
+.env
+
+# Others
+~$*
+*~
+CodeCoverage/
+
+# MSBuild Binary and Structured Log
+*.binlog
+
+# MSTest test Results
+testserver/[Tt]est[Rr]esult*/
+testserver/[Bb]uild[Ll]og.*
+
+# NUnit
+*.VisualState.xml
+TestResult.xml
+nunit-*.xml

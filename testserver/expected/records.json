@@ -1,0 +1,62 @@
+[
+  {
+    "timestamp": "2025-01-15T10:00:00Z",
+    "severity": 150,
+    "message": "System startup initiated",
+    "source": "SystemComponent"
+  },
+  {
+    "timestamp": "2025-01-15T10:01:00Z",
+    "severity": 300,
+    "message": "Configuration loaded successfully",
+    "source": "SystemComponent"
+  },
+  {
+    "timestamp": "2025-01-15T10:02:00Z",
+    "severity": 300,
+    "message": "Connection established to database",
+    "source": "NetworkModule"
+  },
+  {
+    "timestamp": "2025-01-15T10:03:00Z",
+    "severity": 150,
+    "message": "Data processing pipeline started",
+    "source": "DataLogger"
+  },
+  {
+    "timestamp": "2025-01-15T10:04:00Z",
+    "severity": 300,
+    "message": "Sensor reading collected: temperature=22.5",
+    "source": "DataLogger"
+  },
+  {
+    "timestamp": "2025-01-15T10:05:00Z",
+    "severity": 500,
+    "message": "High memory usage detected: 85%",
+    "source": "SystemComponent"
+  },
+  {
+    "timestamp": "2025-01-15T10:06:00Z",
+    "severity": 300,
+    "message": "Security scan completed",
+    "source": "SecurityModule"
+  },
+  {
+    "timestamp": "2025-01-15T10:07:00Z",
+    "severity": 700,
+    "message": "Connection timeout to external service",
+    "source": "NetworkModule"
+  },
+  {
+    "timestamp": "2025-01-15T10:08:00Z",
+    "severity": 300,
+    "message": "Backup process completed",
+    "source": "DataLogger"
+  },
+  {
+    "timestamp": "2025-01-15T10:09:00Z",
+    "severity": 150,
+    "message": "Garbage collection cycle completed",
+    "source": "SystemComponent"
+  }
+]

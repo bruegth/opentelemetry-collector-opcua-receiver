@@ -18,7 +18,12 @@
       "Bash(go work sync:*)",
       "Bash(go get:*)",
       "Bash(GOWORK=off go install:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebFetch(domain:opcfoundation.github.io)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet build:*)",
+      "Bash(go vet:*)",
+      "Bash(xxd:*)"
     ]
   }
 }
