@@ -75,8 +75,9 @@ func (c *opcuaClient) Connect(ctx context.Context) error {
 	// Add request timeout
 	opts = append(opts, opcua.RequestTimeout(c.config.RequestTimeout))
 
-	// Create client
-	client, err := opcua.NewClient(ep.EndpointURL, opts...)
+	// Create client using the configured endpoint URL (not the discovered one,
+	// which may contain the server's internal hostname instead of the network-reachable name).
+	client, err := opcua.NewClient(c.config.Endpoint, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create OPC UA client: %w", err)
 	}
@@ -379,6 +380,56 @@ func (c *opcuaClient) resolveBrowsePath(path string) (*ua.NodeID, error) {
 	// This is a simplified implementation - a full implementation would use
 	// the TranslateBrowsePathsToNodeIDs service
 	return nil, fmt.Errorf("unknown browse path: %s (use NodeID format like 'ns=0;i=2042' or add to known paths)", path)
+}
+
+// findGetRecordsMethod browses the children of a LogObject node to find a method
+// named "GetRecords". Returns the method's NodeID or an error if not found.
+func (c *opcuaClient) findGetRecordsMethod(ctx context.Context, logObjectID *ua.NodeID) (*ua.NodeID, error) {
+	// Try browsing with HasComponent first, then fall back to all references
+	referenceTypes := []*ua.NodeID{
+		ua.NewNumericNodeID(0, 47), // HasComponent
+		nil,                        // All references (no filter)
+	}
+
+	for _, refType := range referenceTypes {
+		desc := &ua.BrowseDescription{
+			NodeID:          logObjectID,
+			BrowseDirection: ua.BrowseDirectionForward,
+			IncludeSubtypes: true,
+			NodeClassMask:   uint32(ua.NodeClassMethod),
+			ResultMask:      uint32(ua.BrowseResultMaskBrowseName),
+		}
+		if refType != nil {
+			desc.ReferenceTypeID = refType
+		}
+
+		req := &ua.BrowseRequest{
+			NodesToBrowse: []*ua.BrowseDescription{desc},
+		}
+
+		resp, err := c.client.Browse(ctx, req)
+		if err != nil {
+			c.logger.Debug("Browse for GetRecords failed", zap.Error(err))
+			continue
+		}
+
+		if len(resp.Results) == 0 || resp.Results[0].StatusCode != ua.StatusOK {
+			c.logger.Debug("Browse returned no results or bad status",
+				zap.Int("results", len(resp.Results)))
+			continue
+		}
+
+		for _, ref := range resp.Results[0].References {
+			c.logger.Debug("Found child of LogObject",
+				zap.String("browse_name", ref.BrowseName.Name),
+				zap.String("node_id", ref.NodeID.NodeID.String()))
+			if ref.BrowseName.Name == "GetRecords" {
+				return ref.NodeID.NodeID, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("GetRecords method not found under %s", logObjectID.String())
 }
 
 // readLogRecords reads log records from the OPC UA server

@@ -24,10 +24,17 @@ func (c *opcuaClient) callGetRecordsMethod(
 	continuationPoint []byte,
 ) ([]testdata.OPCUALogRecord, []byte, error) {
 
-	// Find the GetRecords method NodeID
-	// The GetRecords method should be a child of the LogObject node
-	// Standard method NodeID for GetRecords is typically a known value
-	getRecordsMethodID := ua.NewNumericNodeID(0, 11550) // Standard GetRecords method ID
+	// Find the GetRecords method NodeID by browsing the LogObject's children.
+	getRecordsMethodID, err := c.findGetRecordsMethod(ctx, logObjectID)
+	if err != nil {
+		c.logger.Warn("Could not discover GetRecords method via browsing, using standard ID ns=0;i=11550",
+			zap.String("log_object_id", logObjectID.String()),
+			zap.Error(err))
+		getRecordsMethodID = ua.NewNumericNodeID(0, 11550)
+	} else {
+		c.logger.Debug("Using discovered GetRecords method",
+			zap.String("method_id", getRecordsMethodID.String()))
+	}
 
 	// Build LogRecordMask - request all optional fields
 	// Bit 0: EventType, Bit 1: SourceNode, Bit 2: SourceName, Bit 3: TraceContext, Bit 4: AdditionalData
@@ -183,24 +190,52 @@ func (c *opcuaClient) parseLogRecord(data interface{}) (testdata.OPCUALogRecord,
 	return testdata.OPCUALogRecord{}, fmt.Errorf("unsupported log record format: %T", data)
 }
 
-// parseLogRecordFromExtensionObject parses LogRecord from an ExtensionObject
+// parseLogRecordFromExtensionObject parses LogRecord from an ExtensionObject.
+// The ExtensionObject's binary body is automatically decoded by gopcua into a
+// LogRecordExtObj if the type was registered (see log_record_type.go).
 func (c *opcuaClient) parseLogRecordFromExtensionObject(obj *ua.ExtensionObject) (testdata.OPCUALogRecord, error) {
-	// ExtensionObject decoding would depend on the specific encoding
-	// For now, we'll return a placeholder with proper field extraction when the spec is implemented
 	c.logger.Debug("Parsing LogRecord from ExtensionObject",
 		zap.String("type_id", obj.TypeID.String()))
 
-	// TODO: The actual parsing would decode the binary/XML body according to OPC UA Part 26
-	// This is a simplified version that needs full ExtensionObject codec implementation
-	return testdata.OPCUALogRecord{
-		Timestamp:    time.Now(),
-		Severity:     300,
-		SeverityText: "Info",
-		Message:      "ExtensionObject LogRecord parsing requires full codec - placeholder record",
-		Attributes: map[string]interface{}{
-			"note": "Full OPC UA ExtensionObject parsing not yet implemented",
-		},
-	}, nil
+	// Check if gopcua successfully decoded the ExtensionObject into our registered type
+	if lr, ok := obj.Value.(*LogRecordExtObj); ok && lr != nil {
+		record := testdata.OPCUALogRecord{
+			Timestamp:    lr.Time,
+			Severity:     lr.Severity,
+			SeverityText: c.severityToText(lr.Severity),
+			Message:      lr.Message,
+			Source:       lr.SourceName,
+			Attributes:   make(map[string]interface{}),
+		}
+		return record, nil
+	}
+
+	// Fallback: if the Value is raw bytes (type not registered due to namespace mismatch),
+	// manually decode the binary body using our LogRecordExtObj decoder.
+	if raw, ok := obj.Value.([]byte); ok && len(raw) > 0 {
+		c.logger.Debug("Falling back to manual binary decoding for ExtensionObject",
+			zap.String("type_id", obj.TypeID.String()),
+			zap.Int("body_len", len(raw)))
+		lr := &LogRecordExtObj{}
+		if _, err := lr.Decode(raw); err != nil {
+			return testdata.OPCUALogRecord{}, fmt.Errorf("failed to manually decode ExtensionObject body: %w", err)
+		}
+		record := testdata.OPCUALogRecord{
+			Timestamp:    lr.Time,
+			Severity:     lr.Severity,
+			SeverityText: c.severityToText(lr.Severity),
+			Message:      lr.Message,
+			Source:       lr.SourceName,
+			Attributes:   make(map[string]interface{}),
+		}
+		return record, nil
+	}
+
+	if obj.Value == nil {
+		return testdata.OPCUALogRecord{}, fmt.Errorf("ExtensionObject Value is nil (unknown TypeID %s)", obj.TypeID.String())
+	}
+
+	return testdata.OPCUALogRecord{}, fmt.Errorf("unsupported ExtensionObject value type: %T", obj.Value)
 }
 
 // parseLogRecordFromMap parses LogRecord from a map structure

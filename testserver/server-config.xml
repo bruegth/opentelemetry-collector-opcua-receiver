@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ApplicationConfiguration
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:ua="http://opcfoundation.org/UA/2008/02/Types.xsd"
+  xmlns="http://opcfoundation.org/UA/SDK/Configuration.xsd">
+
+  <ApplicationName>OPC UA Test Server</ApplicationName>
+  <ApplicationUri>urn:localhost:OpcUaTestServer</ApplicationUri>
+  <ProductUri>urn:opcua:testserver</ProductUri>
+  <ApplicationType>Server_0</ApplicationType>
+
+  <SecurityConfiguration>
+    <ApplicationCertificate>
+      <StoreType>Directory</StoreType>
+      <StorePath>pki/own</StorePath>
+      <SubjectName>CN=OPC UA Test Server, O=OPC Foundation</SubjectName>
+    </ApplicationCertificate>
+
+    <TrustedIssuerCertificates>
+      <StoreType>Directory</StoreType>
+      <StorePath>pki/issuer</StorePath>
+    </TrustedIssuerCertificates>
+
+    <TrustedPeerCertificates>
+      <StoreType>Directory</StoreType>
+      <StorePath>pki/trusted</StorePath>
+    </TrustedPeerCertificates>
+
+    <RejectedCertificateStore>
+      <StoreType>Directory</StoreType>
+      <StorePath>pki/rejected</StorePath>
+    </RejectedCertificateStore>
+
+    <AutoAcceptUntrustedCertificates>true</AutoAcceptUntrustedCertificates>
+  </SecurityConfiguration>
+
+  <TransportConfigurations/>
+
+  <TransportQuotas>
+    <OperationTimeout>120000</OperationTimeout>
+    <MaxStringLength>1048576</MaxStringLength>
+    <MaxByteStringLength>4194304</MaxByteStringLength>
+    <MaxArrayLength>65535</MaxArrayLength>
+    <MaxMessageSize>4194304</MaxMessageSize>
+    <MaxBufferSize>65535</MaxBufferSize>
+    <ChannelLifetime>300000</ChannelLifetime>
+    <SecurityTokenLifetime>3600000</SecurityTokenLifetime>
+  </TransportQuotas>
+
+  <ServerConfiguration>
+    <BaseAddresses>
+      <ua:String>opc.tcp://0.0.0.0:4840/TestServer</ua:String>
+    </BaseAddresses>
+
+    <SecurityPolicies>
+      <ServerSecurityPolicy>
+        <SecurityMode>None_1</SecurityMode>
+        <SecurityPolicyUri>http://opcfoundation.org/UA/SecurityPolicy#None</SecurityPolicyUri>
+      </ServerSecurityPolicy>
+    </SecurityPolicies>
+
+    <UserTokenPolicies>
+      <ua:UserTokenPolicy>
+        <ua:TokenType>Anonymous_0</ua:TokenType>
+      </ua:UserTokenPolicy>
+    </UserTokenPolicies>
+
+    <DiagnosticsEnabled>false</DiagnosticsEnabled>
+    <MaxSessionCount>100</MaxSessionCount>
+    <MinSessionTimeout>10000</MinSessionTimeout>
+    <MaxSessionTimeout>3600000</MaxSessionTimeout>
+    <MaxBrowseContinuationPoints>10</MaxBrowseContinuationPoints>
+    <MaxQueryContinuationPoints>10</MaxQueryContinuationPoints>
+    <MaxHistoryContinuationPoints>100</MaxHistoryContinuationPoints>
+    <MaxRequestAge>600000</MaxRequestAge>
+    <MinPublishingInterval>100</MinPublishingInterval>
+    <MaxPublishingInterval>3600000</MaxPublishingInterval>
+    <PublishingResolution>50</PublishingResolution>
+    <MaxSubscriptionLifetime>3600000</MaxSubscriptionLifetime>
+    <MaxMessageQueueSize>10</MaxMessageQueueSize>
+    <MaxNotificationQueueSize>100</MaxNotificationQueueSize>
+    <MaxNotificationsPerPublish>1000</MaxNotificationsPerPublish>
+    <MinMetadataSamplingInterval>1000</MinMetadataSamplingInterval>
+    <MaxRegistrationInterval>0</MaxRegistrationInterval>
+  </ServerConfiguration>
+
+</ApplicationConfiguration>

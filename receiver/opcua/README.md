@@ -133,7 +133,7 @@ service:
 - ✅ Severity level mapping (OPC UA → OpenTelemetry)
 - ✅ Trace context propagation
 - ✅ Resource attributes for server identification
-- ⚠️ OPC UA Part 26 LogObject support (simplified implementation)
+- ✅ OPC UA Part 26 GetRecords with ExtensionObject binary decoding
 
 ## Data Mapping
 
@@ -326,18 +326,14 @@ go build -o otelcol-dev.exe
 ## Limitations
 
 - **Alpha Status**: This receiver is in alpha stage and the API may change
-- **Part 26 Support**: Full OPC UA Part 26 LogObject implementation is simplified
 - **Polling Only**: Currently uses polling; subscriptions not yet supported
-- **GetRecords Method**: Simplified implementation; most OPC UA servers don't implement Part 26 yet
+- **Part 26 Adoption**: Most OPC UA servers don't implement Part 26 yet
 
 ## Future Enhancements
 
-- Full OPC UA Part 26 LogObject specification compliance
 - Support for subscriptions/monitoring in addition to polling
-- ContinuationPoint handling for large log sets
 - Additional filtering options (by source, category, etc.)
 - Metrics about receiver performance
-- Support for multiple LogObject nodes simultaneously
 
 ## Contributing
 

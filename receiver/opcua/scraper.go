@@ -39,7 +39,7 @@ func newScraper(config *Config, settings component.TelemetrySettings) *scraper {
 		config:          config,
 		settings:        settings,
 		transformer:     NewTransformer(config.Endpoint),
-		lastCollectTime: time.Now().Add(-config.CollectionInterval), // Start from one interval ago
+		lastCollectTime: time.Time{}, // Zero time: first scrape fetches all available records
 	}
 }
 

@@ -1,0 +1,27 @@
+receivers:
+  opcua:
+    endpoint: opc.tcp://testserver:4840/TestServer
+    security_policy: None
+    security_mode: None
+    auth:
+      type: anonymous
+    log_object_paths:
+      # The C# test server creates ServerLog at ns=2;i=1000 in its custom namespace
+      - "ns=2;i=1000"
+    collection_interval: 5s
+    max_records_per_call: 100
+    connection_timeout: 30s
+    request_timeout: 15s
+
+exporters:
+  file:
+    path: /output/logs.json
+
+service:
+  pipelines:
+    logs:
+      receivers: [opcua]
+      exporters: [file]
+  telemetry:
+    logs:
+      level: debug
