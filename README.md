@@ -1,7 +1,7 @@
 # OpenTelemetry Collector OPC UA Receiver
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua.svg)](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://go.dev/)
+[![Go version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver?filename=%2Freceiver%2Fopcua%2Fgo.mod)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Stability: Alpha](https://img.shields.io/badge/stability-alpha-orange.svg)](CONTRIBUTING.md)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
