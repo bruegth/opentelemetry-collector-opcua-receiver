@@ -199,15 +199,7 @@ func (c *opcuaClient) parseLogRecordFromExtensionObject(obj *ua.ExtensionObject)
 
 	// Check if gopcua successfully decoded the ExtensionObject into our registered type
 	if lr, ok := obj.Value.(*LogRecordExtObj); ok && lr != nil {
-		record := testdata.OPCUALogRecord{
-			Timestamp:    lr.Time,
-			Severity:     lr.Severity,
-			SeverityText: c.severityToText(lr.Severity),
-			Message:      lr.Message,
-			Source:       lr.SourceName,
-			Attributes:   make(map[string]interface{}),
-		}
-		return record, nil
+		return logRecordExtObjToRecord(lr), nil
 	}
 
 	// Fallback: if the Value is raw bytes (type not registered due to namespace mismatch),
@@ -220,15 +212,7 @@ func (c *opcuaClient) parseLogRecordFromExtensionObject(obj *ua.ExtensionObject)
 		if _, err := lr.Decode(raw); err != nil {
 			return testdata.OPCUALogRecord{}, fmt.Errorf("failed to manually decode ExtensionObject body: %w", err)
 		}
-		record := testdata.OPCUALogRecord{
-			Timestamp:    lr.Time,
-			Severity:     lr.Severity,
-			SeverityText: c.severityToText(lr.Severity),
-			Message:      lr.Message,
-			Source:       lr.SourceName,
-			Attributes:   make(map[string]interface{}),
-		}
-		return record, nil
+		return logRecordExtObjToRecord(lr), nil
 	}
 
 	if obj.Value == nil {
@@ -236,6 +220,36 @@ func (c *opcuaClient) parseLogRecordFromExtensionObject(obj *ua.ExtensionObject)
 	}
 
 	return testdata.OPCUALogRecord{}, fmt.Errorf("unsupported ExtensionObject value type: %T", obj.Value)
+}
+
+// logRecordExtObjToRecord converts a decoded LogRecordExtObj into an OPCUALogRecord,
+// mapping source NodeId components, trace context, and additional data attributes.
+func logRecordExtObjToRecord(lr *LogRecordExtObj) testdata.OPCUALogRecord {
+	ns, idType, id := nodeIDComponents(lr.SourceNode)
+	record := testdata.OPCUALogRecord{
+		Timestamp:       lr.Time,
+		Severity:        lr.Severity,
+		Message:         lr.Message,
+		SourceName:      lr.SourceName,
+		SourceNamespace: ns,
+		SourceIDType:    idType,
+		SourceID:        id,
+		Attributes:      make(map[string]interface{}),
+	}
+
+	// Populate trace context (SpanID == 0 signals no trace context)
+	if lr.SpanID != 0 {
+		record.TraceID = lr.TraceIDHex()
+		record.SpanID = lr.SpanIDHex()
+		record.TraceFlags = 0x01 // sampled
+	}
+
+	// Promote AdditionalData entries to log attributes
+	for k, v := range lr.AdditionalData {
+		record.Attributes[k] = v
+	}
+
+	return record
 }
 
 // parseLogRecordFromMap parses LogRecord from a map structure
@@ -251,7 +265,6 @@ func (c *opcuaClient) parseLogRecordFromMap(m map[string]interface{}) (testdata.
 
 	if sevVal, ok := m["Severity"].(uint16); ok {
 		record.Severity = sevVal
-		record.SeverityText = c.severityToText(sevVal)
 	}
 
 	if msgVal, ok := m["Message"]; ok {
@@ -266,7 +279,16 @@ func (c *opcuaClient) parseLogRecordFromMap(m map[string]interface{}) (testdata.
 
 	// Parse optional fields
 	if sourceNameVal, ok := m["SourceName"].(string); ok {
-		record.Source = sourceNameVal
+		record.SourceName = sourceNameVal
+	}
+
+	if sourceNodeVal, ok := m["SourceNode"].(string); ok && sourceNodeVal != "" {
+		if nodeID, err := ua.ParseNodeID(sourceNodeVal); err == nil {
+			ns, idType, id := nodeIDComponents(nodeID)
+			record.SourceNamespace = ns
+			record.SourceIDType = idType
+			record.SourceID = id
+		}
 	}
 
 	// Parse TraceContext
@@ -296,24 +318,28 @@ func (c *opcuaClient) parseLogRecordFromMap(m map[string]interface{}) (testdata.
 	return record, nil
 }
 
-// severityToText converts OPC UA severity value to text
-func (c *opcuaClient) severityToText(severity uint16) string {
-	switch {
-	case severity >= 1 && severity <= 50:
-		return "Debug"
-	case severity >= 51 && severity <= 100:
-		return "Trace"
-	case severity >= 101 && severity <= 200:
-		return "Info"
-	case severity >= 201 && severity <= 300:
-		return "Warning"
-	case severity >= 301 && severity <= 400:
-		return "Error"
-	case severity >= 401 && severity <= 1000:
-		return "Emergency"
-	default:
-		return "Unknown"
+// nodeIDComponents extracts namespace, identifier type, and identifier value from a NodeID.
+// Returns zero values and empty strings when nodeID is nil.
+func nodeIDComponents(nodeID *ua.NodeID) (namespace uint16, idType string, id string) {
+	if nodeID == nil {
+		return 0, "", ""
 	}
+	namespace = nodeID.Namespace()
+	switch nodeID.Type() {
+	case ua.NodeIDTypeString:
+		idType = "String"
+		id = nodeID.StringID()
+	case ua.NodeIDTypeGUID:
+		idType = "Guid"
+		id = nodeID.String() // full string representation for GUID
+	case ua.NodeIDTypeByteString:
+		idType = "Opaque"
+		id = fmt.Sprintf("%d", nodeID.IntID())
+	default: // NodeIDTypeTwoByte, NodeIDTypeFourByte, NodeIDTypeNumeric
+		idType = "Numeric"
+		id = fmt.Sprintf("%d", nodeID.IntID())
+	}
+	return namespace, idType, id
 }
 
 // getMinSeverityValue converts config severity string to numeric value

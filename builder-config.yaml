@@ -19,7 +19,7 @@ receivers:
   - gomod:
       go.opentelemetry.io/collector/receiver/otlpreceiver v0.145.0
   - import: github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua
-    gomod: github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua v0.0.1
+    gomod: github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua v0.0.2
     path: ./receiver/opcua
 
 providers:

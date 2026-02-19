@@ -213,6 +213,8 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 30*time.Second, opcuaCfg.CollectionInterval)
 	assert.Equal(t, 1000, opcuaCfg.MaxRecordsPerCall)
 	assert.Equal(t, "Info", opcuaCfg.Filter.MinSeverity)
+	assert.Equal(t, "opcua-server", opcuaCfg.Resource.ServiceName)
+	assert.Equal(t, "", opcuaCfg.Resource.ServiceNamespace)
 
 	// Validate default config
 	err := opcuaCfg.Validate()

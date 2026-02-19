@@ -127,5 +127,17 @@ properties:
         type: string
         description: Path to client private key file
 
+  resource:
+    type: object
+    description: Resource-level OTel attributes emitted with every log record
+    properties:
+      service_name:
+        type: string
+        description: Value for the service.name resource attribute
+        default: opcua-server
+      service_namespace:
+        type: string
+        description: Value for the service.namespace resource attribute (omitted when empty)
+
 required:
   - endpoint

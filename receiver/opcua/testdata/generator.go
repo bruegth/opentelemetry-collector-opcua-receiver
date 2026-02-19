@@ -10,24 +10,21 @@ import (
 	"time"
 )
 
-var severities = []struct {
-	Level uint16
-	Text  string
-}{
-	{50, "Trace"},
-	{150, "Debug"},
-	{300, "Info"},
-	{500, "Warn"},
-	{700, "Error"},
-	{900, "Fatal"},
-}
+// severities lists one representative value per Part 26 §5.4 level (Table 5).
+var severities = []uint16{25, 75, 125, 175, 225, 275, 350, 500}
 
-var sources = []string{
-	"SystemComponent",
-	"DeviceDriver",
-	"NetworkModule",
-	"DataLogger",
-	"SecurityModule",
+// sourceNodes maps source names to their NodeId components (namespace, numeric id).
+// Namespace 1 corresponds to the test server's custom namespace.
+var sourceNodes = []struct {
+	Name      string
+	Namespace uint16
+	ID        uint32
+}{
+	{"SystemComponent", 1, 100},
+	{"DeviceDriver", 1, 101},
+	{"NetworkModule", 1, 102},
+	{"DataLogger", 1, 103},
+	{"SecurityModule", 1, 104},
 }
 
 var messages = []string{
@@ -47,15 +44,18 @@ func GenerateSampleLogRecord(seed int) OPCUALogRecord {
 
 	severity := severities[r.Intn(len(severities))]
 
+	src := sourceNodes[r.Intn(len(sourceNodes))]
 	return OPCUALogRecord{
-		Timestamp:    time.Now().Add(-time.Duration(r.Intn(3600)) * time.Second),
-		Severity:     severity.Level,
-		SeverityText: severity.Text,
-		Message:      messages[r.Intn(len(messages))],
-		Source:       sources[r.Intn(len(sources))],
-		TraceID:      fmt.Sprintf("%032x", r.Int63()),
-		SpanID:       fmt.Sprintf("%016x", r.Int63()),
-		TraceFlags:   byte(r.Intn(2)), // 0 or 1
+		Timestamp:       time.Now().Add(-time.Duration(r.Intn(3600)) * time.Second),
+		Severity:        severity,
+		Message:         messages[r.Intn(len(messages))],
+		SourceName:      src.Name,
+		SourceNamespace: src.Namespace,
+		SourceIDType:    "Numeric",
+		SourceID:        fmt.Sprintf("%d", src.ID),
+		TraceID:         fmt.Sprintf("%032x", r.Int63()),
+		SpanID:          fmt.Sprintf("%016x", r.Int63()),
+		TraceFlags:      byte(r.Intn(2)), // 0 or 1
 		Attributes: map[string]interface{}{
 			"component": "test",
 			"version":   "1.0.0",
@@ -64,27 +64,22 @@ func GenerateSampleLogRecord(seed int) OPCUALogRecord {
 	}
 }
 
-// GenerateLogRecordWithDetails creates a log record with specific values
-func GenerateLogRecordWithDetails(timestamp time.Time, severity uint16, message, source string) OPCUALogRecord {
-	severityText := "Info"
-	for _, s := range severities {
-		if s.Level >= severity {
-			severityText = s.Text
-			break
-		}
-	}
-
+// GenerateLogRecordWithDetails creates a log record with specific values.
+// sourceName is used as opcua.source.name; namespace and numeric id default to 1/100.
+func GenerateLogRecordWithDetails(timestamp time.Time, severity uint16, message, sourceName string) OPCUALogRecord {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	return OPCUALogRecord{
-		Timestamp:    timestamp,
-		Severity:     severity,
-		SeverityText: severityText,
-		Message:      message,
-		Source:       source,
-		TraceID:      fmt.Sprintf("%032x", r.Int63()),
-		SpanID:       fmt.Sprintf("%016x", r.Int63()),
-		TraceFlags:   1,
+		Timestamp:       timestamp,
+		Severity:        severity,
+		Message:         message,
+		SourceName:      sourceName,
+		SourceNamespace: 1,
+		SourceIDType:    "Numeric",
+		SourceID:        "100",
+		TraceID:         fmt.Sprintf("%032x", r.Int63()),
+		SpanID:          fmt.Sprintf("%016x", r.Int63()),
+		TraceFlags:      1,
 		Attributes: map[string]interface{}{
 			"test": true,
 		},

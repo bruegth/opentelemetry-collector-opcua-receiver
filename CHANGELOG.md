@@ -8,7 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.0.2] - TBD
 
 ### Added
-- E2E Test
+- E2E Test with C# TestServer
+
+### Fixed
+- LogRecord mapping
+- Remove usage of 'telemetry.sdk'
+
+### Changed
+- 'host.ip' attribute used for endpoint
+- 'opcua.source' attributes usage changed
 
 ## [0.0.1] - 2026-02-17
 

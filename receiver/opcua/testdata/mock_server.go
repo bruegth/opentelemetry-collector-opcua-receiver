@@ -224,8 +224,8 @@ func (s *MockServer) convertRecordsToVariant(records []OPCUALogRecord) *ua.Varia
 			"Message":  record.Message,
 		}
 
-		if record.Source != "" {
-			recordMap["SourceName"] = record.Source
+		if record.SourceName != "" {
+			recordMap["SourceName"] = record.SourceName
 		}
 
 		if record.TraceID != "" || record.SpanID != "" {

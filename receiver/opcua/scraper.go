@@ -17,11 +17,11 @@ import (
 
 // scraper handles log collection from OPC UA servers
 type scraper struct {
-	config           *Config
-	settings         component.TelemetrySettings
-	transformer      *Transformer
-	client           OPCUAClient
-	lastCollectTime  time.Time
+	config          *Config
+	settings        component.TelemetrySettings
+	transformer     *Transformer
+	client          OPCUAClient
+	lastCollectTime time.Time
 }
 
 // OPCUAClient defines the interface for OPC UA client operations
@@ -38,7 +38,7 @@ func newScraper(config *Config, settings component.TelemetrySettings) *scraper {
 	return &scraper{
 		config:          config,
 		settings:        settings,
-		transformer:     NewTransformer(config.Endpoint),
+		transformer:     NewTransformer(config.Endpoint, config.Resource.ServiceName, config.Resource.ServiceNamespace),
 		lastCollectTime: time.Time{}, // Zero time: first scrape fetches all available records
 	}
 }
