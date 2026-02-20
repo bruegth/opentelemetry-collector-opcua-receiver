@@ -50,6 +50,9 @@ func createDefaultConfig() component.Config {
 		TLS: TLSConfig{
 			InsecureSkipVerify: false,
 		},
+		Resource: ResourceConfig{
+			ServiceName: "opcua-server",
+		},
 	}
 }
 

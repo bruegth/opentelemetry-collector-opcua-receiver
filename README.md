@@ -12,18 +12,11 @@ An OpenTelemetry Collector receiver for collecting logs from OPC UA servers impl
 
 This project provides a custom receiver for the OpenTelemetry Collector that enables collection of log records from OPC UA industrial automation servers. It bridges the gap between industrial OPC UA systems and modern observability platforms.
 
-### Features
-
-- ✅ **Multiple Authentication Methods**: Anonymous, username/password, X509 certificates
-- ✅ **Security Support**: Multiple security policies (None, Basic256, Basic256Sha256, etc.)
-- ✅ **Flexible Configuration**: Customizable collection intervals, filtering, and log object paths
-- ✅ **Data Transformation**: Automatic conversion from OPC UA log format to OpenTelemetry
-- ✅ **Trace Context Propagation**: Preserves distributed tracing context
-- ✅ **Comprehensive Testing**: Unit and integration tests with high coverage
+**Features**: multiple authentication methods (anonymous, username/password, X.509 certificates), configurable security policies, severity filtering, trace context propagation, ContinuationPoint pagination.
 
 ### Status
 
-**⚠️ Alpha**: This receiver is in alpha stage. The API may change and the implementation is being actively developed.
+**Alpha**: This receiver is in alpha stage. The API may change and the implementation is being actively developed.
 
 ## Quick Start
 
@@ -113,6 +106,9 @@ receivers:
       max_log_records: 10000
     connection_timeout: 30s
     request_timeout: 10s
+    resource:
+      service_name: my-opcua-server
+      # service_namespace: production
 
 exporters:
   otlphttp:
@@ -212,89 +208,26 @@ The compiled collector will be in `otelcol-dev/otelcol-dev` (or `.exe` on Window
 
 ### Testing
 
-#### Run Unit Tests
-
 ```bash
 cd receiver/opcua
+
+# Run all tests
 go test ./...
-```
 
-#### Run Tests with Coverage
-
-```bash
-cd receiver/opcua
+# Run with coverage
 go test -cover ./...
-```
 
-#### Run Tests with Verbose Output
-
-```bash
-cd receiver/opcua
-go test -v ./...
-```
-
-#### Run Specific Test
-
-```bash
-cd receiver/opcua
-go test -run TestConfigValidate -v
-```
-
-#### Generate Coverage Report
-
-```bash
-cd receiver/opcua
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out -o coverage.html
-```
-
-### Local Testing with OPC UA Server
-
-#### Using Docker (if you have an OPC UA server image)
-
-```bash
-# Start OPC UA server
-docker run -d --name opcua-server -p 4840:4840 your-opcua-server-image
-
-# Run the collector
-cd otelcol-dev
-./otelcol-dev --config ../config.yaml
-```
-
-#### Using Jaeger for Log Visualization
-
-```powershell
-# Start Jaeger (using existing script)
-.\jaeger.ps1
-
-# Update config.yaml to export to Jaeger if needed
+# Generate HTML coverage report
+go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
 ```
 
 ### Code Quality
 
-#### Run Linter
-
-```bash
-# Install golangci-lint
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-
-# Run linter
-cd receiver/opcua
-golangci-lint run
-```
-
-#### Format Code
-
 ```bash
 cd receiver/opcua
 go fmt ./...
-```
-
-#### Run Go Vet
-
-```bash
-cd receiver/opcua
 go vet ./...
+golangci-lint run
 ```
 
 ## CI/CD
@@ -339,59 +272,16 @@ Or use the PowerShell build script on Windows:
 
 ## Contributing
 
-Contributions are welcome! Please follow these guidelines:
-
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Write tests** for your changes
-4. **Ensure tests pass** (`go test ./...`)
-5. **Format your code** (`go fmt ./...`)
-6. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-7. **Push to the branch** (`git push origin feature/amazing-feature`)
-8. **Open a Pull Request**
-
-### Code Style
-
-- Follow standard Go conventions
-- Use `gofmt` for formatting
-- Write meaningful commit messages
-- Add tests for new functionality
-- Update documentation as needed
-
-### Testing Requirements
-
-- All new code must have unit tests
-- Maintain or improve code coverage
-- Integration tests for new features
+Contributions are welcome! Fork the repository, create a feature branch, write tests, and open a pull request. Follow standard Go conventions (`gofmt`, `go vet`, meaningful commit messages).
 
 ## Troubleshooting
 
-### Build Issues
+- **`ocb.exe` not found**: Download OCB from [releases](https://github.com/open-telemetry/opentelemetry-collector/releases) and place in project root.
+- **Module errors**: Run `cd receiver/opcua && go mod tidy`.
+- **Connection refused**: Verify endpoint URL, network connectivity, and firewall rules.
+- **Authentication failures**: Check credentials, certificate paths, and server auth requirements.
 
-**Problem**: `ocb.exe` not found
-
-**Solution**: Download OCB from [releases](https://github.com/open-telemetry/opentelemetry-collector/releases) and place in project root.
-
-**Problem**: Module resolution errors
-
-**Solution**:
-```bash
-cd receiver/opcua
-go mod tidy
-go mod download
-```
-
-### Runtime Issues
-
-**Problem**: Connection refused to OPC UA server
-
-**Solution**: Verify endpoint URL, network connectivity, and firewall rules.
-
-**Problem**: Authentication failures
-
-**Solution**: Check credentials, certificate paths, and server authentication requirements.
-
-For more troubleshooting, see [receiver/opcua/README.md](receiver/opcua/README.md#troubleshooting).
+For more detail, see [receiver/opcua/README.md](receiver/opcua/README.md#troubleshooting).
 
 ## Documentation
 

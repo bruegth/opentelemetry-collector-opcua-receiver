@@ -150,16 +150,18 @@ func TestSeverityFiltering(t *testing.T) {
 
 ## Severity Levels
 
-OPC UA severity mapping:
+OPC UA Part 26 §5.4 severity mapping (per `transformer.go`):
 
-| Severity Range | Level     | OpenTelemetry Equivalent |
-|----------------|-----------|--------------------------|
-| 1-50           | Debug     | Debug                    |
-| 51-100         | Trace     | Trace                    |
-| 101-200        | Info      | Info                     |
-| 201-300        | Warning   | Warn                     |
-| 301-400        | Error     | Error                    |
-| 401-1000       | Emergency | Fatal                    |
+| OPC UA Range | OPC UA Level | OTel SeverityNumber |
+|---|---|---|
+| 1–50 | Debug | DEBUG (5) |
+| 51–100 | Information | INFO (9) |
+| 101–150 | Notice | INFO4 (12) |
+| 151–200 | Warning | WARN (13) |
+| 201–250 | Error | ERROR (17) |
+| 251–300 | Critical | ERROR2 (18) |
+| 301–400 | Alert | ERROR3 (19) |
+| 401–1000 | Emergency | FATAL (21) |
 
 ## Mock Server Features
 
@@ -269,17 +271,6 @@ See [scraper_integration_test.go](../scraper_integration_test.go) for complete i
 - Not suitable for production use
 - No network communication (in-memory only)
 - No authentication/security implementation
-
-## Future Enhancements
-
-Potential improvements for the test server:
-
-- Support for OPC UA subscriptions
-- Event simulation
-- Network protocol simulation
-- Authentication testing
-- Error injection for fault testing
-- Performance testing utilities
 
 ## Contributing
 

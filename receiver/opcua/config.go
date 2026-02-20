@@ -44,6 +44,9 @@ type Config struct {
 
 	// TLS contains TLS/certificate configuration
 	TLS TLSConfig `mapstructure:"tls"`
+
+	// Resource contains resource-level OTel attributes attached to every log record.
+	Resource ResourceConfig `mapstructure:"resource"`
 }
 
 // AuthConfig defines authentication configuration
@@ -65,6 +68,17 @@ type FilterConfig struct {
 
 	// MaxLogRecords is the maximum total number of log records to collect
 	MaxLogRecords int `mapstructure:"max_log_records"`
+}
+
+// ResourceConfig defines the OTel resource attributes that are emitted with every log record.
+type ResourceConfig struct {
+	// ServiceName sets the resource attribute service.name.
+	// Defaults to "opcua-server" when empty.
+	ServiceName string `mapstructure:"service_name"`
+
+	// ServiceNamespace sets the resource attribute service.namespace.
+	// Not emitted when empty.
+	ServiceNamespace string `mapstructure:"service_namespace"`
 }
 
 // TLSConfig defines TLS/certificate configuration

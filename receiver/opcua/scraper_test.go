@@ -36,35 +36,33 @@ func TestScraperIntegration(t *testing.T) {
 	now := time.Now()
 	sampleRecords := []testdata.OPCUALogRecord{
 		{
-			Timestamp:    now.Add(-10 * time.Minute),
-			Severity:     150, // Info
-			SeverityText: "Info",
-			Message:      "Test log message 1",
-			Source:       "TestSource",
+			Timestamp: now.Add(-10 * time.Minute),
+			Severity:  150, // Info
+
+			Message:    "Test log message 1",
+			SourceName: "TestSource",
 			Attributes: map[string]interface{}{
 				"key1": "value1",
 			},
 		},
 		{
-			Timestamp:    now.Add(-5 * time.Minute),
-			Severity:     250, // Warning
-			SeverityText: "Warning",
-			Message:      "Test log message 2",
-			Source:       "TestSource",
-			TraceID:      "0102030405060708090a0b0c0d0e0f10",
-			SpanID:       "0102030405060708",
-			TraceFlags:   1,
+			Timestamp:  now.Add(-5 * time.Minute),
+			Severity:   250, // Warning
+			Message:    "Test log message 2",
+			SourceName: "TestSource",
+			TraceID:    "0102030405060708090a0b0c0d0e0f10",
+			SpanID:     "0102030405060708",
+			TraceFlags: 1,
 			Attributes: map[string]interface{}{
 				"key2": "value2",
 			},
 		},
 		{
-			Timestamp:    now.Add(-2 * time.Minute),
-			Severity:     350, // Error
-			SeverityText: "Error",
-			Message:      "Test log message 3",
-			Source:       "TestSource",
-			Attributes:   make(map[string]interface{}),
+			Timestamp:  now.Add(-2 * time.Minute),
+			Severity:   350, // Error
+			Message:    "Test log message 3",
+			SourceName: "TestSource",
+			Attributes: make(map[string]interface{}),
 		},
 	}
 	mockServer.AddLogRecords(sampleRecords)
@@ -75,8 +73,8 @@ func TestScraperIntegration(t *testing.T) {
 		CollectionInterval: 30 * time.Second,
 		MaxRecordsPerCall:  100,
 		Filter: FilterConfig{
-			MinSeverity:    "Info",
-			MaxLogRecords:  1000,
+			MinSeverity:   "Info",
+			MaxLogRecords: 1000,
 		},
 		LogObjectPaths: []string{"Objects/ServerLog"},
 	}
@@ -93,7 +91,7 @@ func TestScraperIntegration(t *testing.T) {
 	}()
 
 	// Create scraper with mock client
-	transformer := NewTransformer(mockServer.Endpoint())
+	transformer := NewTransformer(mockServer.Endpoint(), "opcua-server", "")
 	settings := componenttest.NewNopTelemetrySettings()
 	scr := &scraper{
 		config:      config,
@@ -156,12 +154,12 @@ func TestScraperIntegrationPagination(t *testing.T) {
 	var manyRecords []testdata.OPCUALogRecord
 	for i := 0; i < 150; i++ {
 		manyRecords = append(manyRecords, testdata.OPCUALogRecord{
-			Timestamp:    now.Add(-time.Duration(150-i) * time.Minute),
-			Severity:     150,
-			SeverityText: "Info",
-			Message:      "Paginated log message",
-			Source:       "TestSource",
-			Attributes:   make(map[string]interface{}),
+			Timestamp: now.Add(-time.Duration(150-i) * time.Minute),
+			Severity:  150,
+
+			Message:    "Paginated log message",
+			SourceName: "TestSource",
+			Attributes: make(map[string]interface{}),
 		})
 	}
 	mockServer.AddLogRecords(manyRecords)
@@ -189,7 +187,7 @@ func TestScraperIntegrationPagination(t *testing.T) {
 	}()
 
 	// Create scraper
-	transformer := NewTransformer(mockServer.Endpoint())
+	transformer := NewTransformer(mockServer.Endpoint(), "opcua-server", "")
 	settings := componenttest.NewNopTelemetrySettings()
 	scr := &scraper{
 		config:      config,
@@ -236,10 +234,10 @@ func TestScraperIntegrationFiltering(t *testing.T) {
 	// Add records with different severities
 	now := time.Now()
 	records := []testdata.OPCUALogRecord{
-		{Timestamp: now, Severity: 50, SeverityText: "Debug", Message: "Debug message", Attributes: make(map[string]interface{})},
-		{Timestamp: now, Severity: 150, SeverityText: "Info", Message: "Info message", Attributes: make(map[string]interface{})},
-		{Timestamp: now, Severity: 250, SeverityText: "Warning", Message: "Warning message", Attributes: make(map[string]interface{})},
-		{Timestamp: now, Severity: 350, SeverityText: "Error", Message: "Error message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 50, Message: "Debug message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 150, Message: "Info message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 250, Message: "Warning message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 350, Message: "Error message", Attributes: make(map[string]interface{})},
 	}
 	mockServer.AddLogRecords(records)
 
@@ -264,7 +262,7 @@ func TestScraperIntegrationFiltering(t *testing.T) {
 		}
 	}()
 
-	transformer := NewTransformer(mockServer.Endpoint())
+	transformer := NewTransformer(mockServer.Endpoint(), "opcua-server", "")
 	settings := componenttest.NewNopTelemetrySettings()
 	scr := &scraper{
 		config:      config,

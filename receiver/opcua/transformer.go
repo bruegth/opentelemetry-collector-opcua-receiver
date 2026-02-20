@@ -6,6 +6,9 @@ package opcua
 import (
 	"encoding/hex"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -16,13 +19,20 @@ import (
 
 // Transformer converts OPC UA log records to OpenTelemetry format
 type Transformer struct {
-	serverEndpoint string
+	serverEndpoint   string
+	serviceName      string
+	serviceNamespace string
 }
 
 // NewTransformer creates a new transformer
-func NewTransformer(serverEndpoint string) *Transformer {
+func NewTransformer(serverEndpoint, serviceName, serviceNamespace string) *Transformer {
+	if serviceName == "" {
+		serviceName = "opcua-server"
+	}
 	return &Transformer{
-		serverEndpoint: serverEndpoint,
+		serverEndpoint:   serverEndpoint,
+		serviceName:      serviceName,
+		serviceNamespace: serviceNamespace,
 	}
 }
 
@@ -55,12 +65,29 @@ func (t *Transformer) TransformLogs(opcuaRecords []testdata.OPCUALogRecord) plog
 	return logs
 }
 
-// setResourceAttributes sets resource-level attributes
+// setResourceAttributes sets resource-level attributes.
+// server.address and server.port are the OTel semantic conventions for describing
+// the remote server being connected to (not the local host running the collector).
 func (t *Transformer) setResourceAttributes(attrs pcommon.Map) {
-	attrs.PutStr("opcua.server.endpoint", t.serverEndpoint)
-	attrs.PutStr("service.name", "opcua-server")
-	attrs.PutStr("telemetry.sdk.name", "opentelemetry-collector-opcua")
-	attrs.PutStr("telemetry.sdk.language", "go")
+	attrs.PutStr("service.name", t.serviceName)
+	if t.serviceNamespace != "" {
+		attrs.PutStr("service.namespace", t.serviceNamespace)
+	}
+
+	// Parse the OPC UA endpoint URI (e.g. "opc.tcp://hostname:4840/path")
+	// to extract server.address and server.port per OTel semantic conventions.
+	if u, err := url.Parse(t.serverEndpoint); err == nil && u.Host != "" {
+		host, portStr, err := net.SplitHostPort(u.Host)
+		if err == nil {
+			attrs.PutStr("server.address", host)
+			if port, err := strconv.ParseInt(portStr, 10, 64); err == nil {
+				attrs.PutInt("server.port", port)
+			}
+		} else {
+			// No port in the host (unusual for OPC UA, but handle gracefully)
+			attrs.PutStr("server.address", u.Host)
+		}
+	}
 }
 
 // transformLogRecord converts a single OPC UA log record to OTEL format
@@ -72,7 +99,7 @@ func (t *Transformer) transformLogRecord(opcuaRecord testdata.OPCUALogRecord, lo
 	// Map severity
 	severityNumber := t.mapSeverity(opcuaRecord.Severity)
 	logRecord.SetSeverityNumber(severityNumber)
-	logRecord.SetSeverityText(opcuaRecord.SeverityText)
+	logRecord.SetSeverityText(severityToText(opcuaRecord.Severity))
 
 	// Set log body
 	logRecord.Body().SetStr(opcuaRecord.Message)
@@ -80,8 +107,13 @@ func (t *Transformer) transformLogRecord(opcuaRecord testdata.OPCUALogRecord, lo
 	// Set attributes
 	attrs := logRecord.Attributes()
 
-	if opcuaRecord.Source != "" {
-		attrs.PutStr("opcua.source", opcuaRecord.Source)
+	if opcuaRecord.SourceName != "" {
+		attrs.PutStr("opcua.source.name", opcuaRecord.SourceName)
+	}
+	if opcuaRecord.SourceIDType != "" {
+		attrs.PutInt("opcua.source.namespace", int64(opcuaRecord.SourceNamespace))
+		attrs.PutStr("opcua.source.id_type", opcuaRecord.SourceIDType)
+		attrs.PutStr("opcua.source.id", opcuaRecord.SourceID)
 	}
 
 	// Add custom attributes from OPC UA log
@@ -95,29 +127,75 @@ func (t *Transformer) transformLogRecord(opcuaRecord testdata.OPCUALogRecord, lo
 	}
 }
 
-// mapSeverity maps OPC UA severity levels to OpenTelemetry SeverityNumber
+// mapSeverity maps an OPC UA Part 26 §5.4 severity value to an OpenTelemetry SeverityNumber.
+// Severity text is not transmitted over OPC UA; it is derived separately by severityToText.
+//
+// Part 26 §5.4 Table 5 → OTel mapping:
+//
+//	1–50:    Debug       → SeverityNumberDebug
+//	51–100:  Information → SeverityNumberInfo
+//	101–150: Notice      → SeverityNumberInfo4
+//	151–200: Warning     → SeverityNumberWarn
+//	201–250: Error       → SeverityNumberError
+//	251–300: Critical    → SeverityNumberError2
+//	301–400: Alert       → SeverityNumberError3
+//	401–1000: Emergency  → SeverityNumberFatal
 func (t *Transformer) mapSeverity(opcuaSeverity uint16) plog.SeverityNumber {
-	// OPC UA severity mapping (Part 26):
-	// 0-99: Trace
-	// 100-199: Debug
-	// 200-399: Info
-	// 400-599: Warn
-	// 600-799: Error
-	// 800-1000: Fatal
-
 	switch {
-	case opcuaSeverity < 100:
-		return plog.SeverityNumberTrace
-	case opcuaSeverity < 200:
+	case opcuaSeverity >= 1 && opcuaSeverity <= 50:
 		return plog.SeverityNumberDebug
-	case opcuaSeverity < 400:
+	case opcuaSeverity >= 51 && opcuaSeverity <= 100:
 		return plog.SeverityNumberInfo
-	case opcuaSeverity < 600:
+	case opcuaSeverity >= 101 && opcuaSeverity <= 150:
+		return plog.SeverityNumberInfo4
+	case opcuaSeverity >= 151 && opcuaSeverity <= 200:
 		return plog.SeverityNumberWarn
-	case opcuaSeverity < 800:
+	case opcuaSeverity >= 201 && opcuaSeverity <= 250:
 		return plog.SeverityNumberError
-	default:
+	case opcuaSeverity >= 251 && opcuaSeverity <= 300:
+		return plog.SeverityNumberError2
+	case opcuaSeverity >= 301 && opcuaSeverity <= 400:
+		return plog.SeverityNumberError3
+	case opcuaSeverity >= 401 && opcuaSeverity <= 1000:
 		return plog.SeverityNumberFatal
+	default:
+		return plog.SeverityNumberUnspecified
+	}
+}
+
+// severityToText maps an OPC UA Part 26 §5.4 severity value to its text label.
+// Severity text is not transmitted over OPC UA and must be derived from the numeric value.
+//
+// Part 26 §5.4 Table 5 ranges:
+//
+//	1–50:    Debug
+//	51–100:  Information
+//	101–150: Notice
+//	151–200: Warning
+//	201–250: Error
+//	251–300: Critical
+//	301–400: Alert
+//	401–1000: Emergency
+func severityToText(severity uint16) string {
+	switch {
+	case severity >= 1 && severity <= 50:
+		return "Debug"
+	case severity >= 51 && severity <= 100:
+		return "Information"
+	case severity >= 101 && severity <= 150:
+		return "Notice"
+	case severity >= 151 && severity <= 200:
+		return "Warning"
+	case severity >= 201 && severity <= 250:
+		return "Error"
+	case severity >= 251 && severity <= 300:
+		return "Critical"
+	case severity >= 301 && severity <= 400:
+		return "Alert"
+	case severity >= 401 && severity <= 1000:
+		return "Emergency"
+	default:
+		return "Unspecified"
 	}
 }
 

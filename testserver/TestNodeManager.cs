@@ -210,29 +210,77 @@ public class TestNodeManager : CustomNodeManager2
     }
 
     /// <summary>
-    /// Encodes a log record as an ExtensionObject with a binary body.
-    /// Binary format (OPC UA binary encoding, all fields sequential):
-    ///   1. DateTime     - Time (Int64, 100ns ticks since 1601-01-01)
-    ///   2. UInt16       - Severity
-    ///   3. LocalizedText - Message (encoding mask + optional locale + text)
-    ///   4. String       - SourceName (Int32 length + UTF-8 bytes, or -1 for null)
+    /// Encodes a log record as an ExtensionObject with a binary body following OPC UA Part 26 §5.4.
+    ///
+    /// Binary field order (client requests mask 0x1F → all optional fields always present):
+    ///   1. DateTime             – Time       (mandatory)
+    ///   2. UInt16               – Severity   (mandatory)
+    ///   3. NodeId               – EventType  (optional, bit 0)
+    ///   4. NodeId               – SourceNode (optional, bit 1)
+    ///   5. String               – SourceName (optional, bit 2)
+    ///   6. LocalizedText        – Message    (mandatory)
+    ///   7. TraceContextDataType – TraceContext (optional, bit 3)
+    ///        Guid   (16 bytes OPC UA Guid)  – TraceId
+    ///        UInt64                         – SpanId        (0 = absent)
+    ///        UInt64                         – ParentSpanId  (0 = root)
+    ///        String                         – ParentIdentifier (null = local)
+    ///   8. NameValuePair[]      – AdditionalData (optional, bit 4)
+    ///        Int32  – element count (0 = empty)
+    ///        per element: String (Name) + Variant (Value)
     /// </summary>
     private ExtensionObject EncodeLogRecord(TestLogRecord record)
     {
         using var stream = new MemoryStream();
         using (var encoder = new BinaryEncoder(stream, _messageContext, true))
         {
-            // DateTime: Int64 - OPC UA DateTime (100ns intervals since 1601-01-01)
+            // 1. DateTime: Time
             encoder.WriteDateTime(null, record.Timestamp);
 
-            // UInt16: Severity
+            // 2. UInt16: Severity
             encoder.WriteUInt16(null, record.Severity);
 
-            // LocalizedText: Message
+            // 3. NodeId: EventType
+            var eventTypeNodeId = string.IsNullOrEmpty(record.EventType)
+                ? NodeId.Null
+                : NodeId.Parse(record.EventType);
+            encoder.WriteNodeId(null, eventTypeNodeId);
+
+            // 4. NodeId: SourceNode
+            var sourceNodeId = string.IsNullOrEmpty(record.SourceNode)
+                ? NodeId.Null
+                : NodeId.Parse(record.SourceNode);
+            encoder.WriteNodeId(null, sourceNodeId);
+
+            // 5. String: SourceName
+            encoder.WriteString(null, record.SourceName);
+
+            // 6. LocalizedText: Message
             encoder.WriteLocalizedText(null, new LocalizedText(record.Message));
 
-            // String: SourceName
-            encoder.WriteString(null, record.Source);
+            // 7. TraceContextDataType (inline, always written; SpanId=0 signals absent)
+            //    Guid (OPC UA binary: Data1:UInt32 LE + Data2:UInt16 LE + Data3:UInt16 LE + Data4:[8]byte)
+            var traceGuid = record.TraceContext?.TraceId ?? Guid.Empty;
+            var guidBytes = traceGuid.ToByteArray(); // preserves byte order for new Guid(byte[]) round-trip
+            encoder.WriteUInt32(null, BitConverter.ToUInt32(guidBytes, 0));  // Data1
+            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 4));  // Data2
+            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 6));  // Data3
+            for (int i = 8; i < 16; i++) encoder.WriteByte(null, guidBytes[i]); // Data4
+
+            encoder.WriteUInt64(null, record.TraceContext?.SpanId ?? 0UL);
+            encoder.WriteUInt64(null, record.TraceContext?.ParentSpanId ?? 0UL);
+            encoder.WriteString(null, record.TraceContext?.ParentIdentifier);
+
+            // 8. AdditionalData: NameValuePair[]
+            var data = record.AdditionalData;
+            encoder.WriteInt32(null, data?.Count ?? 0);
+            if (data != null)
+            {
+                foreach (var (key, value) in data)
+                {
+                    encoder.WriteString(null, key);
+                    encoder.WriteVariant(null, new Variant(value));
+                }
+            }
         }
 
         byte[] body = stream.ToArray();

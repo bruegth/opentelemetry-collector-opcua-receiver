@@ -2,61 +2,142 @@
   {
     "timestamp": "2025-01-15T10:00:00Z",
     "severity": 150,
+    "severity_number": 12,
+    "severity_text": "Notice",
     "message": "System startup initiated",
-    "source": "SystemComponent"
+    "source_name": "SystemComponent",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "100",
+    "trace_id": "0102030405060708090a0b0c0d0e0f10",
+    "span_id": "0102030405060708",
+    "attributes": {
+      "component": "system",
+      "version": "1.0.0"
+    }
   },
   {
     "timestamp": "2025-01-15T10:01:00Z",
     "severity": 300,
+    "severity_number": 18,
+    "severity_text": "Critical",
     "message": "Configuration loaded successfully",
-    "source": "SystemComponent"
+    "source_name": "SystemComponent",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "100",
+    "trace_id": "aabbccddeeff00112233445566778899",
+    "span_id": "aabbccddeeff0011",
+    "attributes": {
+      "config_file": "/etc/server/config.yaml"
+    }
   },
   {
     "timestamp": "2025-01-15T10:02:00Z",
     "severity": 300,
+    "severity_number": 18,
+    "severity_text": "Critical",
     "message": "Connection established to database",
-    "source": "NetworkModule"
+    "source_name": "NetworkModule",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "102",
+    "attributes": {}
   },
   {
     "timestamp": "2025-01-15T10:03:00Z",
     "severity": 150,
+    "severity_number": 12,
+    "severity_text": "Notice",
     "message": "Data processing pipeline started",
-    "source": "DataLogger"
+    "source_name": "DataLogger",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "103",
+    "attributes": {}
   },
   {
     "timestamp": "2025-01-15T10:04:00Z",
     "severity": 300,
+    "severity_number": 18,
+    "severity_text": "Critical",
     "message": "Sensor reading collected: temperature=22.5",
-    "source": "DataLogger"
+    "source_name": "DataLogger",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "103",
+    "attributes": {
+      "sensor_id": "temp-01",
+      "unit": "Celsius"
+    }
   },
   {
     "timestamp": "2025-01-15T10:05:00Z",
     "severity": 500,
+    "severity_number": 21,
+    "severity_text": "Emergency",
     "message": "High memory usage detected: 85%",
-    "source": "SystemComponent"
+    "source_name": "SystemComponent",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "100",
+    "trace_id": "ffeeddccbbaa99887766554433221100",
+    "span_id": "ffeeddccbbaa9988",
+    "attributes": {
+      "memory_percent": "85"
+    }
   },
   {
     "timestamp": "2025-01-15T10:06:00Z",
     "severity": 300,
+    "severity_number": 18,
+    "severity_text": "Critical",
     "message": "Security scan completed",
-    "source": "SecurityModule"
+    "source_name": "SecurityModule",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "104",
+    "attributes": {}
   },
   {
     "timestamp": "2025-01-15T10:07:00Z",
     "severity": 700,
+    "severity_number": 21,
+    "severity_text": "Emergency",
     "message": "Connection timeout to external service",
-    "source": "NetworkModule"
+    "source_name": "NetworkModule",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "102",
+    "trace_id": "deadbeefcafe000011223344aabbccdd",
+    "span_id": "deadbeefcafe0000",
+    "attributes": {
+      "service": "external-api",
+      "timeout_seconds": "30"
+    }
   },
   {
     "timestamp": "2025-01-15T10:08:00Z",
     "severity": 300,
+    "severity_number": 18,
+    "severity_text": "Critical",
     "message": "Backup process completed",
-    "source": "DataLogger"
+    "source_name": "DataLogger",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "103",
+    "attributes": {}
   },
   {
     "timestamp": "2025-01-15T10:09:00Z",
     "severity": 150,
+    "severity_number": 12,
+    "severity_text": "Notice",
     "message": "Garbage collection cycle completed",
-    "source": "SystemComponent"
+    "source_name": "SystemComponent",
+    "source_namespace": 1,
+    "source_id_type": "Numeric",
+    "source_id": "100",
+    "attributes": {}
   }
 ]

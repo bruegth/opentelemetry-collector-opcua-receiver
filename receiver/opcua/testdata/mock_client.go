@@ -91,7 +91,7 @@ func (c *MockClient) GetRecordsWithSeverity(
 
 	// Create a CallMethodRequest
 	req := &ua.CallMethodRequest{
-		ObjectID: ua.NewNumericNodeID(0, 2042), // Server object
+		ObjectID: ua.NewNumericNodeID(0, 2042),  // Server object
 		MethodID: ua.NewNumericNodeID(0, 11550), // GetRecords method
 		InputArguments: []*ua.Variant{
 			ua.MustVariant(startTime),
@@ -158,7 +158,6 @@ func parseRecordMap(m map[string]interface{}) OPCUALogRecord {
 
 	if sevVal, ok := m["Severity"].(uint16); ok {
 		record.Severity = sevVal
-		record.SeverityText = severityToText(sevVal)
 	}
 
 	if msgVal, ok := m["Message"].(string); ok {
@@ -166,7 +165,7 @@ func parseRecordMap(m map[string]interface{}) OPCUALogRecord {
 	}
 
 	if sourceVal, ok := m["SourceName"].(string); ok {
-		record.Source = sourceVal
+		record.SourceName = sourceVal
 	}
 
 	if traceCtx, ok := m["TraceContext"].(map[string]interface{}); ok {
@@ -192,26 +191,6 @@ func parseRecordMap(m map[string]interface{}) OPCUALogRecord {
 	}
 
 	return record
-}
-
-// severityToText converts severity to text
-func severityToText(severity uint16) string {
-	switch {
-	case severity >= 1 && severity <= 50:
-		return "Debug"
-	case severity >= 51 && severity <= 100:
-		return "Trace"
-	case severity >= 101 && severity <= 200:
-		return "Info"
-	case severity >= 201 && severity <= 300:
-		return "Warning"
-	case severity >= 301 && severity <= 400:
-		return "Error"
-	case severity >= 401 && severity <= 1000:
-		return "Emergency"
-	default:
-		return "Unknown"
-	}
 }
 
 // IsConnected returns whether the client is connected

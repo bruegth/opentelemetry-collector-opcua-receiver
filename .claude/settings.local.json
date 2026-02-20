@@ -23,7 +23,26 @@
       "Bash(dotnet restore:*)",
       "Bash(dotnet build:*)",
       "Bash(go vet:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\brueg\\\\go\\\\pkg\\\\mod\\\\github.com\\\\gopcua\")",
+      "Bash(cmd /c:*)",
+      "Bash(go list:*)",
+      "Bash(go mod download:*)",
+      "Bash(go doc:*)",
+      "Bash(gofmt:*)",
+      "Bash(where:*)",
+      "Bash(python3:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" config --local core.autocrlf)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" config --global core.autocrlf)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" config core.autocrlf)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" diff --stat receiver/opcua/)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" diff receiver/opcua/transformer.go)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" diff -- \"receiver/opcua/transformer.go\")",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" --no-pager diff receiver/opcua/scraper_test.go)",
+      "Bash(git --no-pager -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" diff -- receiver/opcua/scraper_test.go)",
+      "Bash(git --no-pager -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" diff)",
+      "Bash(git -C \"c:/_Git/opentelemetry-collector-opcua-receiver\" status)"
     ]
   }
 }

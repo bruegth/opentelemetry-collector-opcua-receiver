@@ -13,6 +13,9 @@ receivers:
       - Objects/ServerLog
     collection_interval: 30s
     max_records_per_call: 1000
+    resource:
+      service_name: opcua-server
+      # service_namespace: production
 
 exporters:
   debug:

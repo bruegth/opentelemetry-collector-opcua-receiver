@@ -1,9 +1,9 @@
 #!/bin/bash
 # Validates the OTel collector file export against expected test records.
-# Usage: ./validate.sh <output-file> <expected-file>
+# Usage: ./validate.sh <output-file> <expected-file> [max-wait-seconds]
 #
-# The output file contains OTLP JSON log export lines.
-# The expected file contains the array of expected records with known fields.
+# The output file contains OTLP JSON log export (single JSON or NDJSON).
+# The expected file contains an array of expected records with known fields.
 
 set -euo pipefail
 
@@ -30,81 +30,106 @@ fi
 
 echo "Output file found ($(wc -c < "$OUTPUT_FILE") bytes)"
 
-# Extract log record bodies (messages) from the OTLP JSON output.
-# The file exporter writes one JSON object per line (or one large JSON).
-# Each line contains resourceLogs[].scopeLogs[].logRecords[].body.stringValue
-ACTUAL_MESSAGES=$(jq -r '
-  [.resourceLogs[]?.scopeLogs[]?.logRecords[]? |
-    .body.stringValue // empty] | .[]
-' "$OUTPUT_FILE" 2>/dev/null | sort)
+# Parse all log records from the OTLP output.
+# -s (slurp) handles both single-JSON and NDJSON (one JSON object per line) formats.
+# Each record is normalized to a flat structure keyed by message body.
+ACTUAL_RECORDS=$(jq -sc '
+  [ .[].resourceLogs[]?.scopeLogs[]?.logRecords[]? | {
+    message:          (.body.stringValue // ""),
+    severity_number:  (.severityNumber // 0),
+    severity_text:    (.severityText // ""),
+    trace_id:         (.traceId // ""),
+    span_id:          (.spanId // ""),
+    source_name:      ((.attributes // []) | map(select(.key == "opcua.source.name"))     | first | .value.stringValue // ""),
+    source_namespace: ((.attributes // []) | map(select(.key == "opcua.source.namespace"))| first | .value.intValue    // ""),
+    source_id_type:   ((.attributes // []) | map(select(.key == "opcua.source.id_type"))  | first | .value.stringValue // ""),
+    source_id:        ((.attributes // []) | map(select(.key == "opcua.source.id"))       | first | .value.stringValue // ""),
+    attrs:            ((.attributes // []) | map({ (.key): (.value.stringValue // .value.intValue // "") }) | add // {})
+  }]
+' "$OUTPUT_FILE")
 
-EXPECTED_MESSAGES=$(jq -r '.[].message' "$EXPECTED_FILE" | sort)
-
-if [ -z "$ACTUAL_MESSAGES" ]; then
-    echo "FAIL: No log record messages found in output."
-    echo "Output file content (first 2000 chars):"
-    head -c 2000 "$OUTPUT_FILE"
-    exit 1
-fi
+EXPECTED_COUNT=$(jq 'length' "$EXPECTED_FILE")
+ACTUAL_COUNT=$(echo "$ACTUAL_RECORDS" | jq 'length')
 
 echo ""
-echo "--- Expected messages ---"
-echo "$EXPECTED_MESSAGES"
-echo ""
-echo "--- Actual messages ---"
-echo "$ACTUAL_MESSAGES"
-echo ""
+echo "Expected record count: $EXPECTED_COUNT"
+echo "Actual record count:   $ACTUAL_COUNT"
 
-# Compare messages
-MISSING=0
-while IFS= read -r msg; do
-    if ! echo "$ACTUAL_MESSAGES" | grep -qF "$msg"; then
-        echo "MISSING: $msg"
-        MISSING=$((MISSING + 1))
-    fi
-done <<< "$EXPECTED_MESSAGES"
+# Run per-record field validation using jq.
+# For each expected record find the matching actual record by message body and
+# compare: severity_text, source_name, source_namespace, source_id_type,
+# source_id, trace_id, span_id, and every custom attribute in .attributes.
+#
+# Note: source_namespace is stored as an OTLP intValue (JSON string "1") in the
+# actual output, but as a JSON number in the expected file — compare via tostring.
+FAILURES=$(jq -r --argjson actual "$ACTUAL_RECORDS" '
+  ($actual | map({(.message): .}) | add) as $by_msg |
+  .[] |
+  . as $exp |
+  ($by_msg[$exp.message] // null) as $act |
+  if $act == null then
+    "MISSING: \($exp.message)"
+  else
+    # severity_number — OTel SeverityNumber (1–24), NOT the raw OPC UA severity value
+    (if $act.severity_number != $exp.severity_number then
+      "FAIL [\($exp.message)]: severity_number: expected \($exp.severity_number) (OTel), got \($act.severity_number)"
+    else empty end),
+    # severity_text
+    (if $act.severity_text != $exp.severity_text then
+      "FAIL [\($exp.message)]: severity_text: expected \"\($exp.severity_text)\", got \"\($act.severity_text)\""
+    else empty end),
+    # source_name
+    (if $act.source_name != $exp.source_name then
+      "FAIL [\($exp.message)]: source_name: expected \"\($exp.source_name)\", got \"\($act.source_name)\""
+    else empty end),
+    # source_namespace: expected is JSON number, actual is intValue string — compare via tostring
+    (if $act.source_namespace != ($exp.source_namespace | tostring) then
+      "FAIL [\($exp.message)]: source_namespace: expected \($exp.source_namespace), got \"\($act.source_namespace)\""
+    else empty end),
+    # source_id_type
+    (if $act.source_id_type != $exp.source_id_type then
+      "FAIL [\($exp.message)]: source_id_type: expected \"\($exp.source_id_type)\", got \"\($act.source_id_type)\""
+    else empty end),
+    # source_id
+    (if $act.source_id != $exp.source_id then
+      "FAIL [\($exp.message)]: source_id: expected \"\($exp.source_id)\", got \"\($act.source_id)\""
+    else empty end),
+    # trace_id — only validate when the expected record carries one
+    (if ($exp.trace_id // "") != "" then
+      if $act.trace_id != $exp.trace_id then
+        "FAIL [\($exp.message)]: trace_id: expected \"\($exp.trace_id)\", got \"\($act.trace_id)\""
+      else empty end
+    else empty end),
+    # span_id — only validate when the expected record carries one
+    (if ($exp.span_id // "") != "" then
+      if $act.span_id != $exp.span_id then
+        "FAIL [\($exp.message)]: span_id: expected \"\($exp.span_id)\", got \"\($act.span_id)\""
+      else empty end
+    else empty end),
+    # custom attributes (AdditionalData) — iterate over every key in expected .attributes
+    ($exp.attributes | to_entries[] |
+      . as $entry |
+      if $act.attrs[$entry.key] == null then
+        "FAIL [\($exp.message)]: attribute \"\($entry.key)\" missing in output"
+      elif $act.attrs[$entry.key] != $entry.value then
+        "FAIL [\($exp.message)]: attribute \"\($entry.key)\": expected \"\($entry.value)\", got \"\($act.attrs[$entry.key])\""
+      else empty end
+    )
+  end
+' "$EXPECTED_FILE")
 
-EXPECTED_COUNT=$(echo "$EXPECTED_MESSAGES" | wc -l)
-ACTUAL_COUNT=$(echo "$ACTUAL_MESSAGES" | wc -l)
-
-echo "Expected records: $EXPECTED_COUNT"
-echo "Actual records:   $ACTUAL_COUNT"
-echo "Missing records:  $MISSING"
-
-if [ "$MISSING" -gt 0 ]; then
+if [ -n "$FAILURES" ]; then
     echo ""
-    echo "FAIL: $MISSING expected records not found in output."
-    exit 1
-fi
-
-# Also validate that sources are present as attributes
-ACTUAL_SOURCES=$(jq -r '
-  [.resourceLogs[]?.scopeLogs[]?.logRecords[]? |
-    (.attributes[]? | select(.key == "opcua.source") | .value.stringValue) // empty] | .[]
-' "$OUTPUT_FILE" 2>/dev/null | sort -u)
-
-EXPECTED_SOURCES=$(jq -r '.[].source' "$EXPECTED_FILE" | sort -u)
-
-echo ""
-echo "--- Expected sources ---"
-echo "$EXPECTED_SOURCES"
-echo "--- Actual sources ---"
-echo "$ACTUAL_SOURCES"
-
-SOURCE_MISSING=0
-while IFS= read -r src; do
-    if ! echo "$ACTUAL_SOURCES" | grep -qF "$src"; then
-        echo "MISSING source: $src"
-        SOURCE_MISSING=$((SOURCE_MISSING + 1))
-    fi
-done <<< "$EXPECTED_SOURCES"
-
-if [ "$SOURCE_MISSING" -gt 0 ]; then
+    echo "$FAILURES"
+    FAILURE_COUNT=$(echo "$FAILURES" | wc -l)
     echo ""
-    echo "FAIL: $SOURCE_MISSING expected sources not found in output."
+    echo "FAIL: $FAILURE_COUNT validation error(s) found."
     exit 1
 fi
 
 echo ""
-echo "PASS: All expected records and sources found in collector output."
+echo "PASS: All $EXPECTED_COUNT expected records validated successfully."
+echo "      Validated: message, severity_number (OTel 1-24), severity_text,"
+echo "                 source_name, source_namespace, source_id_type, source_id,"
+echo "                 trace_id, span_id, attributes"
 exit 0

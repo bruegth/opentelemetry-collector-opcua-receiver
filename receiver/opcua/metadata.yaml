@@ -40,8 +40,17 @@ resource_attributes:
     enabled: true
 
 attributes:
-  opcua.source:
-    description: The source component or module that generated the log
+  opcua.source.name:
+    description: Human-readable name of the log source (OPC UA Part 26 SourceName)
+    type: string
+  opcua.source.namespace:
+    description: Namespace index of the source NodeId (OPC UA Part 3 §8.2)
+    type: int
+  opcua.source.id_type:
+    description: Identifier type of the source NodeId ("Numeric", "String", "Guid", or "Opaque")
+    type: string
+  opcua.source.id:
+    description: Identifier value of the source NodeId
     type: string
   opcua.event_id:
     description: Event identifier from OPC UA log

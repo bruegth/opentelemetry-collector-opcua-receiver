@@ -362,9 +362,9 @@ func (c *opcuaClient) translateBrowsePathToNodeID(ctx context.Context, path stri
 func (c *opcuaClient) resolveBrowsePath(path string) (*ua.NodeID, error) {
 	// Map of known browse paths to their NodeIDs
 	knownPaths := map[string]*ua.NodeID{
-		"Objects/ServerLog":                      ua.NewNumericNodeID(0, 2042),
-		"Objects/Server/ServerLog":               ua.NewNumericNodeID(0, 2042),
-		"ServerLog":                              ua.NewNumericNodeID(0, 2042),
+		"Objects/ServerLog":        ua.NewNumericNodeID(0, 2042),
+		"Objects/Server/ServerLog": ua.NewNumericNodeID(0, 2042),
+		"ServerLog":                ua.NewNumericNodeID(0, 2042),
 		"Objects/Server/ServerDiagnostics/ServerLog": ua.NewNumericNodeID(0, 2042),
 	}
 
