@@ -107,3 +107,7 @@ testserver/[Bb]uild[Ll]og.*
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+config-subscription-test.yaml
+
+testserver/pki/

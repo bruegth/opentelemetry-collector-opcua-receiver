@@ -1,6 +1,5 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
-
 package opcua
 
 import (
@@ -15,7 +14,6 @@ import (
 var (
 	// Type is the type of this receiver
 	Type = component.MustNewType("opcua")
-
 	// Stability level of the receiver
 	stability = component.StabilityLevelAlpha
 )
@@ -53,6 +51,13 @@ func createDefaultConfig() component.Config {
 		Resource: ResourceConfig{
 			ServiceName: "opcua-server",
 		},
+		CollectionMode: CollectionModePoll,
+		Subscription: SubscriptionConfig{
+			PublishingInterval:   1 * time.Second,
+			QueueSize:            100,
+			ReconnectDelay:       5 * time.Second,
+			MaxReconnectAttempts: 0,
+		},
 	}
 }
 
@@ -64,6 +69,8 @@ func createLogsReceiver(
 	nextConsumer consumer.Logs,
 ) (receiver.Logs, error) {
 	receiverConfig := cfg.(*Config)
-
+	if receiverConfig.CollectionMode == CollectionModeSubscription {
+		return newSubscriptionReceiver(receiverConfig, set, nextConsumer)
+	}
 	return newLogsReceiver(receiverConfig, set, nextConsumer)
 }

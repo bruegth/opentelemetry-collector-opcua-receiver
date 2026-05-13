@@ -9,6 +9,10 @@ namespace OpcUaTestServer;
 /// <summary>
 /// Custom node manager that creates a ServerLog object with a GetRecords method
 /// implementing OPC UA Part 26 log record retrieval for testing.
+///
+/// Also exposes a monitorable variable node (ns=2;i=1004) that is updated with
+/// a new LogRecord ExtensionObject every 5 seconds so that subscription-based
+/// receivers can be tested without polling.
 /// </summary>
 public class TestNodeManager : CustomNodeManager2
 {
@@ -19,11 +23,20 @@ public class TestNodeManager : CustomNodeManager2
     private const ushort GetRecordsInputArgsId = 1002;
     private const ushort GetRecordsOutputArgsId = 1003;
 
+    // Variable node pushed to subscription clients every 5 seconds.
+    private const ushort LatestLogRecordId = 1004;
+    private const int SubscriptionPushIntervalMs = 5000;
+
     // TypeId for our custom LogRecord encoding
     public const ushort LogRecordTypeId = 5001;
 
     private readonly List<TestLogRecord> _fixedRecords;
     private readonly IServiceMessageContext _messageContext;
+
+    // Variable node reference kept so we can update its value from the timer.
+    private BaseDataVariableState? _latestLogRecordNode;
+    private Timer? _pushTimer;
+    private int _pushIndex = 0;
 
     public TestNodeManager(IServerInternal server, ApplicationConfiguration configuration)
         : base(server, configuration, NamespaceUri)
@@ -69,7 +82,8 @@ public class TestNodeManager : CustomNodeManager2
                 true,
                 ObjectIds.ObjectsFolder);
 
-            // Create the GetRecords method as a child of ServerLog
+            // ── GetRecords method ─────────────────────────────────────────────
+
             var getRecordsMethod = new MethodState(serverLogFolder)
             {
                 NodeId = new NodeId(GetRecordsMethodId, NamespaceIndex),
@@ -81,7 +95,6 @@ public class TestNodeManager : CustomNodeManager2
                 UserExecutable = true
             };
 
-            // Define input arguments
             var inputArgs = new PropertyState<Argument[]>(getRecordsMethod)
             {
                 NodeId = new NodeId(GetRecordsInputArgsId, NamespaceIndex),
@@ -103,7 +116,6 @@ public class TestNodeManager : CustomNodeManager2
             };
             getRecordsMethod.InputArguments = inputArgs;
 
-            // Define output arguments
             var outputArgs = new PropertyState<Argument[]>(getRecordsMethod)
             {
                 NodeId = new NodeId(GetRecordsOutputArgsId, NamespaceIndex),
@@ -120,21 +132,89 @@ public class TestNodeManager : CustomNodeManager2
                 }
             };
             getRecordsMethod.OutputArguments = outputArgs;
-
-            // Set the method handler
             getRecordsMethod.OnCallMethod = new GenericMethodCalledEventHandler(OnGetRecordsCalled);
-
-            // Add the method (with its argument properties) as a child of ServerLog
-            // BEFORE adding ServerLog to predefined nodes, so the HasComponent reference is preserved.
             serverLogFolder.AddChild(getRecordsMethod);
+
+            // ── LatestLogRecord variable node (for subscription mode) ──────────
+            //
+            // Subscription clients monitor this node (ns=2;i=1004).  The server
+            // updates it every 5 seconds with the next fixed test record, encoded
+            // as a LogRecord ExtensionObject (same binary format as GetRecords).
+            // This lets the subscription receiver be tested end-to-end without
+            // modifying the polling path.
+
+            _latestLogRecordNode = new BaseDataVariableState(serverLogFolder)
+            {
+                NodeId = new NodeId(LatestLogRecordId, NamespaceIndex),
+                BrowseName = new QualifiedName("LatestLogRecord", NamespaceIndex),
+                DisplayName = new LocalizedText("LatestLogRecord"),
+                Description = new LocalizedText("Most recent LogRecord – updated every 5 s for subscription testing"),
+                ReferenceTypeId = ReferenceTypeIds.HasComponent,
+                TypeDefinitionId = VariableTypeIds.BaseDataVariableType,
+                DataType = DataTypeIds.BaseDataType,
+                ValueRank = ValueRanks.Scalar,
+                AccessLevel = AccessLevels.CurrentRead,
+                UserAccessLevel = AccessLevels.CurrentRead,
+                Historizing = false,
+                Value = new ExtensionObject(), // placeholder until first push
+                StatusCode = StatusCodes.Good,
+                Timestamp = DateTime.UtcNow
+            };
+
+            serverLogFolder.AddChild(_latestLogRecordNode);
 
             // Add the complete hierarchy as a single predefined node tree
             AddPredefinedNode(SystemContext, serverLogFolder);
 
             Console.WriteLine($"Address space created. ServerLog NodeId: ns={NamespaceIndex};i={ServerLogId}");
             Console.WriteLine($"GetRecords method NodeId: ns={NamespaceIndex};i={GetRecordsMethodId}");
+            Console.WriteLine($"LatestLogRecord NodeId:   ns={NamespaceIndex};i={LatestLogRecordId}");
             Console.WriteLine($"Loaded {_fixedRecords.Count} fixed test records.");
+
+            // Start the push timer after the address space is ready.
+            _pushTimer = new Timer(PushNextLogRecord, null,
+                TimeSpan.FromSeconds(1),                          // first push after 1 s
+                TimeSpan.FromMilliseconds(SubscriptionPushIntervalMs));
         }
+    }
+
+    /// <summary>
+    /// Timer callback: cycles through the fixed test records and writes the
+    /// next one to the LatestLogRecord variable node so that subscribed clients
+    /// receive a DataChangeNotification.
+    /// </summary>
+    private void PushNextLogRecord(object? state)
+    {
+        if (_latestLogRecordNode == null || _fixedRecords.Count == 0)
+            return;
+
+        var record = _fixedRecords[_pushIndex % _fixedRecords.Count];
+        _pushIndex++;
+
+        // Re-stamp the record with the current time so timestamps are realistic.
+        var stamped = new TestLogRecord
+        {
+            Timestamp      = DateTime.UtcNow,
+            Severity       = record.Severity,
+            Message        = record.Message,
+            SourceName     = record.SourceName,
+            SourceNode     = record.SourceNode,
+            EventType      = record.EventType,
+            TraceContext   = record.TraceContext,
+            AdditionalData = record.AdditionalData
+        };
+
+        var extObj = EncodeLogRecord(stamped);
+
+        lock (Lock)
+        {
+            _latestLogRecordNode.Value = extObj;
+            _latestLogRecordNode.StatusCode = StatusCodes.Good;
+            _latestLogRecordNode.Timestamp = DateTime.UtcNow;
+            _latestLogRecordNode.ClearChangeMasks(SystemContext, false);
+        }
+
+        Console.WriteLine($"[push #{_pushIndex}] severity={stamped.Severity} msg={stamped.Message}");
     }
 
     /// <summary>
@@ -146,46 +226,32 @@ public class TestNodeManager : CustomNodeManager2
         IList<object> inputArguments,
         IList<object> outputArguments)
     {
-        // Parse input arguments
         DateTime startTime = (DateTime)inputArguments[0];
         DateTime endTime = (DateTime)inputArguments[1];
         uint maxRecords = (uint)inputArguments[2];
         ushort minSeverity = (ushort)inputArguments[3];
-        // uint logRecordMask = (uint)inputArguments[4];
         byte[]? continuationPoint = inputArguments[5] as byte[];
 
         Console.WriteLine($"GetRecords called: StartTime={startTime:O}, EndTime={endTime:O}, " +
                           $"MaxRecords={maxRecords}, MinSeverity={minSeverity}");
 
-        // Validate
         if (endTime < startTime)
-        {
             return new ServiceResult(StatusCodes.BadInvalidArgument);
-        }
 
-        // Filter records
         var filtered = _fixedRecords
             .Where(r => r.Timestamp >= startTime && r.Timestamp <= endTime)
             .Where(r => r.Severity >= minSeverity)
             .ToList();
 
-        // Handle continuation point
         int startIndex = 0;
         if (continuationPoint != null && continuationPoint.Length >= 4)
-        {
             startIndex = BitConverter.ToInt32(continuationPoint, 0);
-        }
 
         if (startIndex > 0 && startIndex < filtered.Count)
-        {
             filtered = filtered.Skip(startIndex).ToList();
-        }
         else if (startIndex >= filtered.Count && startIndex > 0)
-        {
             filtered = new List<TestLogRecord>();
-        }
 
-        // Apply max records limit
         byte[]? nextContinuationPoint = null;
         if (maxRecords > 0 && filtered.Count > (int)maxRecords)
         {
@@ -196,12 +262,9 @@ public class TestNodeManager : CustomNodeManager2
 
         Console.WriteLine($"Returning {filtered.Count} records");
 
-        // Build output: array of ExtensionObjects with binary-encoded LogRecords
         var records = new ExtensionObject[filtered.Count];
         for (int i = 0; i < filtered.Count; i++)
-        {
             records[i] = EncodeLogRecord(filtered[i]);
-        }
 
         outputArguments[0] = records;
         outputArguments[1] = nextContinuationPoint ?? Array.Empty<byte>();
@@ -211,66 +274,37 @@ public class TestNodeManager : CustomNodeManager2
 
     /// <summary>
     /// Encodes a log record as an ExtensionObject with a binary body following OPC UA Part 26 §5.4.
-    ///
-    /// Binary field order (client requests mask 0x1F → all optional fields always present):
-    ///   1. DateTime             – Time       (mandatory)
-    ///   2. UInt16               – Severity   (mandatory)
-    ///   3. NodeId               – EventType  (optional, bit 0)
-    ///   4. NodeId               – SourceNode (optional, bit 1)
-    ///   5. String               – SourceName (optional, bit 2)
-    ///   6. LocalizedText        – Message    (mandatory)
-    ///   7. TraceContextDataType – TraceContext (optional, bit 3)
-    ///        Guid   (16 bytes OPC UA Guid)  – TraceId
-    ///        UInt64                         – SpanId        (0 = absent)
-    ///        UInt64                         – ParentSpanId  (0 = root)
-    ///        String                         – ParentIdentifier (null = local)
-    ///   8. NameValuePair[]      – AdditionalData (optional, bit 4)
-    ///        Int32  – element count (0 = empty)
-    ///        per element: String (Name) + Variant (Value)
     /// </summary>
     private ExtensionObject EncodeLogRecord(TestLogRecord record)
     {
         using var stream = new MemoryStream();
         using (var encoder = new BinaryEncoder(stream, _messageContext, true))
         {
-            // 1. DateTime: Time
             encoder.WriteDateTime(null, record.Timestamp);
-
-            // 2. UInt16: Severity
             encoder.WriteUInt16(null, record.Severity);
 
-            // 3. NodeId: EventType
             var eventTypeNodeId = string.IsNullOrEmpty(record.EventType)
-                ? NodeId.Null
-                : NodeId.Parse(record.EventType);
+                ? NodeId.Null : NodeId.Parse(record.EventType);
             encoder.WriteNodeId(null, eventTypeNodeId);
 
-            // 4. NodeId: SourceNode
             var sourceNodeId = string.IsNullOrEmpty(record.SourceNode)
-                ? NodeId.Null
-                : NodeId.Parse(record.SourceNode);
+                ? NodeId.Null : NodeId.Parse(record.SourceNode);
             encoder.WriteNodeId(null, sourceNodeId);
 
-            // 5. String: SourceName
             encoder.WriteString(null, record.SourceName);
-
-            // 6. LocalizedText: Message
             encoder.WriteLocalizedText(null, new LocalizedText(record.Message));
 
-            // 7. TraceContextDataType (inline, always written; SpanId=0 signals absent)
-            //    Guid (OPC UA binary: Data1:UInt32 LE + Data2:UInt16 LE + Data3:UInt16 LE + Data4:[8]byte)
             var traceGuid = record.TraceContext?.TraceId ?? Guid.Empty;
-            var guidBytes = traceGuid.ToByteArray(); // preserves byte order for new Guid(byte[]) round-trip
-            encoder.WriteUInt32(null, BitConverter.ToUInt32(guidBytes, 0));  // Data1
-            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 4));  // Data2
-            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 6));  // Data3
-            for (int i = 8; i < 16; i++) encoder.WriteByte(null, guidBytes[i]); // Data4
+            var guidBytes = traceGuid.ToByteArray();
+            encoder.WriteUInt32(null, BitConverter.ToUInt32(guidBytes, 0));
+            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 4));
+            encoder.WriteUInt16(null, BitConverter.ToUInt16(guidBytes, 6));
+            for (int i = 8; i < 16; i++) encoder.WriteByte(null, guidBytes[i]);
 
             encoder.WriteUInt64(null, record.TraceContext?.SpanId ?? 0UL);
             encoder.WriteUInt64(null, record.TraceContext?.ParentSpanId ?? 0UL);
             encoder.WriteString(null, record.TraceContext?.ParentIdentifier);
 
-            // 8. AdditionalData: NameValuePair[]
             var data = record.AdditionalData;
             encoder.WriteInt32(null, data?.Count ?? 0);
             if (data != null)
@@ -284,10 +318,6 @@ public class TestNodeManager : CustomNodeManager2
         }
 
         byte[] body = stream.ToArray();
-
-        // TypeId identifies our custom encoding.
-        // Use namespace index 0 so the Go client's registered type (ns=0;i=5001)
-        // matches the wire format. gopcua's type registry is keyed by NodeID.String().
         var typeId = new ExpandedNodeId(LogRecordTypeId);
         return new ExtensionObject(typeId, body);
     }
