@@ -34,6 +34,10 @@ public class TestNodeManager : CustomNodeManager2
     // TypeId for our custom binary LogRecord ExtensionObject encoding.
     public const ushort LogRecordTypeId = 5001;
 
+    // NodeId for LogEntryConditionClassType (Part 26 §6.5).
+    // Defined in our test namespace so its BrowseName is readable.
+    private const ushort LogEntryConditionClassTypeId = 1006;
+
     // Push interval for subscription testing.
     private const int SubscriptionPushIntervalMs = 5000;
 
@@ -87,6 +91,57 @@ public class TestNodeManager : CustomNodeManager2
 
             references.Add(new NodeStateReference(ReferenceTypeIds.HasComponent, false, _serverLogNode.NodeId));
             _serverLogNode.AddReference(ReferenceTypeIds.HasComponent, true, ObjectIds.ObjectsFolder);
+
+            // ── LogEntryConditionClassType object type node (Part 26 §6.5) ──────
+            // Register a dedicated type node with BrowseName "LogEntryConditionClassType"
+            // so that the collector's ConditionClassId check can read and verify it.
+            var logEntryConditionClassTypeNodeId = new NodeId(LogEntryConditionClassTypeId, NamespaceIndex);
+            var logEntryConditionClassType = new BaseObjectTypeState
+            {
+                NodeId      = logEntryConditionClassTypeNodeId,
+                BrowseName  = new QualifiedName("LogEntryConditionClassType", NamespaceIndex),
+                DisplayName = new LocalizedText("LogEntryConditionClassType"),
+                Description = new LocalizedText("OPC UA Part 26 §6.5 LogEntryConditionClassType"),
+                SuperTypeId = new NodeId(0, 0), // BaseConditionClassType would be ns=0;i=11163
+                IsAbstract  = false,
+            };
+            AddPredefinedNode(SystemContext, logEntryConditionClassType);
+
+            // ── ConditionClassId property (Part 26 §6.5) ─────────────────────
+            // Points to LogEntryConditionClassType so the collector can verify
+            // this node is a proper Part 26 LogObject before subscribing.
+            var conditionClassId = new PropertyState<NodeId>(_serverLogNode)
+            {
+                NodeId           = new NodeId((ushort)1005, NamespaceIndex),
+                BrowseName       = new QualifiedName("ConditionClassId", 0),
+                DisplayName      = new LocalizedText("ConditionClassId"),
+                TypeDefinitionId = VariableTypeIds.PropertyType,
+                ReferenceTypeId  = ReferenceTypeIds.HasProperty,
+                DataType         = DataTypeIds.NodeId,
+                ValueRank        = ValueRanks.Scalar,
+                AccessLevel      = AccessLevels.CurrentRead,
+                UserAccessLevel  = AccessLevels.CurrentRead,
+                Value            = logEntryConditionClassTypeNodeId,
+            };
+            _serverLogNode.AddChild(conditionClassId);
+
+            // ── ConditionSubClassId property (Part 26 §6.5) ──────────────────
+            // Also expose ConditionSubClassId so clients checking either property
+            // can verify this is a Part 26 LogObject.
+            var conditionSubClassId = new PropertyState<NodeId[]>(_serverLogNode)
+            {
+                NodeId           = new NodeId((ushort)1007, NamespaceIndex),
+                BrowseName       = new QualifiedName("ConditionSubClassId", 0),
+                DisplayName      = new LocalizedText("ConditionSubClassId"),
+                TypeDefinitionId = VariableTypeIds.PropertyType,
+                ReferenceTypeId  = ReferenceTypeIds.HasProperty,
+                DataType         = DataTypeIds.NodeId,
+                ValueRank        = ValueRanks.OneDimension,
+                AccessLevel      = AccessLevels.CurrentRead,
+                UserAccessLevel  = AccessLevels.CurrentRead,
+                Value            = new NodeId[] { logEntryConditionClassTypeNodeId },
+            };
+            _serverLogNode.AddChild(conditionSubClassId);
 
             // ── 3. GetRecords method ──────────────────────────────────────
             var getRecordsMethod = new MethodState(_serverLogNode)

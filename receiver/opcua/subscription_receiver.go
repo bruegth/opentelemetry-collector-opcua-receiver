@@ -258,6 +258,10 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 				zap.String("path", path), zap.Error(err))
 			continue
 		}
+		// Verify the node is a Part 26 LogObject — skip if check fails.
+		if !r.verifyLogEntryConditionClass(ctx, nodeID, path) {
+			continue
+		}
 		handle := uint32(i + 1)
 		r.handleToPath[handle] = path
 		items = append(items, eventMonitoredItemRequest(nodeID, handle, r.config.Subscription.QueueSize))
@@ -302,6 +306,18 @@ func (r *subscriptionReceiver) runLoop(ctx context.Context) {
 			}
 			if notif.Error != nil {
 				r.settings.Logger.Warn("OPC UA publish notification error", zap.Error(notif.Error))
+				continue
+			}
+			// StatusChangeNotification means the server has changed state (e.g.
+			// restarted). Treat it as a broken subscription and reconnect so
+			// the ConditionClassId check runs again on the new session.
+			if scn, ok := notif.Value.(*ua.StatusChangeNotification); ok {
+				r.settings.Logger.Warn("OPC UA status change notification — reconnecting",
+					zap.String("status", scn.Status.Error()))
+				if err := r.reconnect(ctx, &reconnectAttempts); err != nil {
+					r.settings.Logger.Error("OPC UA subscription permanently lost", zap.Error(err))
+					return
+				}
 				continue
 			}
 			logs := r.decodeNotification(notif)
@@ -520,6 +536,109 @@ func resolveNodeID(path string) (*ua.NodeID, error) {
 	return nil, fmt.Errorf(
 		"cannot resolve %q to a NodeID – use a NodeID string (e.g. \"ns=2;i=1001\") "+
 			"or a known browse path", path)
+}
+
+// verifyLogEntryConditionClass checks that nodeID is a Part 26 LogObject by
+// verifying that either ConditionClassId or ConditionSubClassId (OPC UA Part 26
+// §6.5) points to a type whose BrowseName is "LogEntryConditionClassType".
+//
+// Per the spec: "An instance of LogObject can contain LogRecords that result
+// from Events that have a ConditionClassId OR ConditionSubClassId of
+// LogEntryConditionClassType."
+//
+// Returns true if the node is verified, false if the check fails (node is skipped).
+//
+// Implementation note: LogEntryConditionClassType lives in the Part 26 companion
+// namespace, not ns=0, so we compare the BrowseName Name component only —
+// namespace-independent and works on any conforming server.
+func (r *subscriptionReceiver) verifyLogEntryConditionClass(ctx context.Context, nodeID *ua.NodeID, path string) bool {
+	const logEntryConditionClassName = "LogEntryConditionClassType"
+
+	node := r.client.Node(nodeID)
+
+	// checkProperty resolves a named property on the node, reads its NodeId value,
+	// then reads the BrowseName of that type and returns the Name component.
+	checkProperty := func(propName string) (string, bool) {
+		propNodeID, err := node.TranslateBrowsePathsToNodeIDs(ctx,
+			[]*ua.QualifiedName{{NamespaceIndex: 0, Name: propName}},
+		)
+		if err != nil || propNodeID == nil {
+			return "", false
+		}
+
+		// Read the NodeId value of the property.
+		readResp, err := r.client.Read(ctx, &ua.ReadRequest{
+			MaxAge:             2000,
+			TimestampsToReturn: ua.TimestampsToReturnNeither,
+			NodesToRead: []*ua.ReadValueID{
+				{NodeID: propNodeID, AttributeID: ua.AttributeIDValue, DataEncoding: &ua.QualifiedName{}},
+			},
+		})
+		if err != nil || len(readResp.Results) == 0 || readResp.Results[0].Status != ua.StatusOK {
+			return "", false
+		}
+
+		// The value must be a NodeId pointing to the condition class type.
+		// ConditionSubClassId is an array — handle both scalar and array cases.
+		var classNodeIDs []*ua.NodeID
+		switch v := readResp.Results[0].Value.Value().(type) {
+		case *ua.NodeID:
+			if v != nil {
+				classNodeIDs = append(classNodeIDs, v)
+			}
+		case []*ua.NodeID:
+			classNodeIDs = v
+		}
+
+		for _, classNodeID := range classNodeIDs {
+			if classNodeID == nil {
+				continue
+			}
+			// Read BrowseName of the class type node.
+			bnResp, err := r.client.Read(ctx, &ua.ReadRequest{
+				MaxAge:             2000,
+				TimestampsToReturn: ua.TimestampsToReturnNeither,
+				NodesToRead: []*ua.ReadValueID{
+					{NodeID: classNodeID, AttributeID: ua.AttributeIDBrowseName, DataEncoding: &ua.QualifiedName{}},
+				},
+			})
+			if err != nil || len(bnResp.Results) == 0 || bnResp.Results[0].Status != ua.StatusOK {
+				continue
+			}
+			bn, ok := bnResp.Results[0].Value.Value().(*ua.QualifiedName)
+			if ok && bn != nil {
+				return bn.Name, true
+			}
+		}
+		return "", false
+	}
+
+	// Check ConditionClassId first, then ConditionSubClassId as fallback.
+	for _, propName := range []string{"ConditionClassId", "ConditionSubClassId"} {
+		name, found := checkProperty(propName)
+		if !found {
+			continue
+		}
+		if name == logEntryConditionClassName {
+			r.settings.Logger.Info("Node verified as Part 26 LogObject (LogEntryConditionClassType)",
+				zap.String("path", path),
+				zap.String("node_id", nodeID.String()),
+				zap.String("verified_via", propName),
+			)
+			return true
+		}
+		r.settings.Logger.Debug("Property found but does not match LogEntryConditionClassType",
+			zap.String("prop", propName),
+			zap.String("found", name),
+		)
+	}
+
+	r.settings.Logger.Warn("Skipping node — neither ConditionClassId nor ConditionSubClassId "+
+		"points to LogEntryConditionClassType (OPC UA Part 26 §6.5)",
+		zap.String("path", path),
+		zap.String("node_id", nodeID.String()),
+	)
+	return false
 }
 
 // selectEndpointForConfig picks the best matching endpoint.
