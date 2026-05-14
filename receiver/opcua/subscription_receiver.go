@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gopcua/opcua"
+	"github.com/gopcua/opcua/id"
 	"github.com/gopcua/opcua/ua"
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
-	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/receiver"
 	"go.uber.org/zap"
@@ -20,29 +20,99 @@ import (
 	"github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/testdata"
 )
 
-// subscriptionReceiver implements receiver.Logs using OPC UA Subscriptions.
+// baseLogEventTypeID is the well-known NodeID for BaseLogEventType per OPC UA Part 26 §6.3.
+var baseLogEventTypeID = ua.NewNumericNodeID(0, 18000)
+
+// Event field index constants – must stay in sync with logEventSelectClauses().
+const (
+	fieldIdxTime           = 0
+	fieldIdxSeverity       = 1
+	fieldIdxMessage        = 2
+	fieldIdxSourceName     = 3
+	fieldIdxSourceNode     = 4
+	fieldIdxTraceContext   = 5
+	fieldIdxAdditionalData = 6
+	fieldIdxCount          = 7
+)
+
+// logEventSelectClauses returns the SimpleAttributeOperand select clauses for
+// a BaseLogEventType event subscription.  The order defines the field indices above.
+// TypeDefinitionID uses BaseEventType (ns=0;i=2041) which is always registered in
+// the server type hierarchy; Part 26-specific fields fall back gracefully when absent.
+func logEventSelectClauses() []*ua.SimpleAttributeOperand {
+	baseEventTypeID := ua.NewNumericNodeID(0, id.BaseEventType)
+	mkField := func(name string) *ua.SimpleAttributeOperand {
+		return &ua.SimpleAttributeOperand{
+			TypeDefinitionID: baseEventTypeID,
+			BrowsePath:       []*ua.QualifiedName{{NamespaceIndex: 0, Name: name}},
+			AttributeID:      ua.AttributeIDValue,
+		}
+	}
+	return []*ua.SimpleAttributeOperand{
+		mkField("Time"),           // 0
+		mkField("Severity"),       // 1
+		mkField("Message"),        // 2
+		mkField("SourceName"),     // 3
+		mkField("SourceNode"),     // 4
+		mkField("TraceContext"),   // 5
+		mkField("AdditionalData"), // 6
+	}
+}
+
+// logEventWhereClause returns an empty ContentFilter (no restrictions).
+// We rely on the select clauses and the event notifier node itself to scope
+// which events are delivered. An empty where clause is valid per OPC UA Part 4
+// §7.17.3 and avoids server-side decoding issues with LiteralOperand encoding
+// variants that differ between SDK implementations.
+func logEventWhereClause() *ua.ContentFilter {
+	return &ua.ContentFilter{}
+}
+
+// eventMonitoredItemRequest creates a MonitoredItemCreateRequest that subscribes
+// to BaseLogEventType events on an event-notifier node (AttributeIDEventNotifier).
+func eventMonitoredItemRequest(nodeID *ua.NodeID, handle uint32, queueSize uint32) *ua.MonitoredItemCreateRequest {
+	filter := ua.EventFilter{
+		SelectClauses: logEventSelectClauses(),
+		WhereClause:   logEventWhereClause(),
+	}
+	filterExt := &ua.ExtensionObject{
+		EncodingMask: ua.ExtensionObjectBinary,
+		TypeID: &ua.ExpandedNodeID{
+			NodeID: ua.NewNumericNodeID(0, id.EventFilter_Encoding_DefaultBinary),
+		},
+		Value: filter,
+	}
+	return &ua.MonitoredItemCreateRequest{
+		ItemToMonitor: &ua.ReadValueID{
+			NodeID:       nodeID,
+			AttributeID:  ua.AttributeIDEventNotifier,
+			DataEncoding: &ua.QualifiedName{},
+		},
+		MonitoringMode: ua.MonitoringModeReporting,
+		RequestedParameters: &ua.MonitoringParameters{
+			ClientHandle:     handle,
+			SamplingInterval: 1.0,
+			Filter:           filterExt,
+			QueueSize:        queueSize,
+			DiscardOldest:    true,
+		},
+	}
+}
+
+// subscriptionReceiver implements receiver.Logs using OPC UA event subscriptions
+// per OPC UA Part 26 §6 (LogObject and Events).
 //
-// Instead of polling on an interval it registers one MonitoredItem per
-// log_object_path; the server then pushes ExtensionObject values whenever a
-// new LogRecord arrives (OPC UA Part 26 §7).
-//
-// Lifecycle:
-//
-//	Start  → connect → create subscription → register MonitoredItems → runLoop goroutine
-//	Shutdown → cancel ctx → wait doneCh → cancel subscription → close client
+// The receiver monitors the EventNotifier attribute on each log_object_path node.
+// The server fires BaseLogEventType events when new log records are generated.
 type subscriptionReceiver struct {
 	config      *Config
 	settings    receiver.Settings
 	consumer    consumer.Logs
 	transformer *Transformer
 
-	// live OPC UA resources – nil until Start succeeds
 	client       *opcua.Client
 	subscription *opcua.Subscription
 	notifCh      chan *opcua.PublishNotificationData
-
-	// handleToPath maps the client-assigned MonitoredItem handle back to the
-	// log_object_path string so we can build correct resource attributes.
 	handleToPath map[uint32]string
 
 	cancelFn context.CancelFunc
@@ -51,7 +121,6 @@ type subscriptionReceiver struct {
 
 var _ receiver.Logs = (*subscriptionReceiver)(nil)
 
-// newSubscriptionReceiver creates (but does not start) a subscriptionReceiver.
 func newSubscriptionReceiver(
 	config *Config,
 	settings receiver.Settings,
@@ -73,25 +142,20 @@ func newSubscriptionReceiver(
 	}, nil
 }
 
-// Start connects to the OPC UA server, creates a subscription, and launches
-// the background notification loop.
 func (r *subscriptionReceiver) Start(ctx context.Context, _ component.Host) error {
-	r.settings.Logger.Info("Starting OPC UA subscription receiver",
+	r.settings.Logger.Info("Starting OPC UA subscription receiver (event mode)",
 		zap.String("endpoint", r.config.Endpoint),
 		zap.Duration("publishing_interval", r.config.Subscription.PublishingInterval),
 	)
-
 	if err := r.connect(ctx); err != nil {
 		return fmt.Errorf("opcua subscription receiver: %w", err)
 	}
-
 	loopCtx, cancel := context.WithCancel(context.Background())
 	r.cancelFn = cancel
 	go r.runLoop(loopCtx)
 	return nil
 }
 
-// Shutdown stops the background goroutine and releases OPC UA resources.
 func (r *subscriptionReceiver) Shutdown(ctx context.Context) error {
 	r.settings.Logger.Info("Shutting down OPC UA subscription receiver")
 	if r.cancelFn != nil {
@@ -106,8 +170,6 @@ func (r *subscriptionReceiver) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// cleanup cancels the subscription and closes the client connection.
-// Safe to call multiple times or when resources are nil.
 func (r *subscriptionReceiver) cleanup(ctx context.Context) {
 	if r.subscription != nil {
 		if err := r.subscription.Cancel(ctx); err != nil {
@@ -123,11 +185,7 @@ func (r *subscriptionReceiver) cleanup(ctx context.Context) {
 	}
 }
 
-// connect establishes the OPC UA session and sets up the subscription with all
-// MonitoredItems. It mirrors the connection logic of opcuaClient.Connect so
-// that auth and security settings work identically in both modes.
 func (r *subscriptionReceiver) connect(ctx context.Context) error {
-	// ── 1. Discover endpoints ──────────────────────────────────────────────
 	endpoints, err := opcua.GetEndpoints(ctx, r.config.Endpoint)
 	if err != nil {
 		return fmt.Errorf("get endpoints: %w", err)
@@ -135,8 +193,6 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 	if len(endpoints) == 0 {
 		return fmt.Errorf("no endpoints at %s", r.config.Endpoint)
 	}
-
-	// ── 2. Build client options (mirrors opcuaClient.Connect) ─────────────
 	ep := selectEndpointForConfig(endpoints, r.config)
 	if ep == nil {
 		return fmt.Errorf("no endpoint matches security_policy=%s security_mode=%s",
@@ -161,7 +217,6 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 		opts = append(opts, opcua.AuthAnonymous())
 	}
 
-	// ── 3. Connect ─────────────────────────────────────────────────────────
 	client, err := opcua.NewClient(r.config.Endpoint, opts...)
 	if err != nil {
 		return fmt.Errorf("create client: %w", err)
@@ -175,7 +230,6 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 	r.settings.Logger.Info("OPC UA subscription receiver connected",
 		zap.String("endpoint", r.config.Endpoint))
 
-	// ── 4. Create subscription ─────────────────────────────────────────────
 	bufSize := int(r.config.Subscription.QueueSize)
 	if bufSize < 32 {
 		bufSize = 32
@@ -194,7 +248,6 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 		zap.Duration("revised_interval", sub.RevisedPublishingInterval),
 	)
 
-	// ── 5. Register MonitoredItems ─────────────────────────────────────────
 	r.handleToPath = make(map[uint32]string)
 	items := make([]*ua.MonitoredItemCreateRequest, 0, len(r.config.LogObjectPaths))
 
@@ -207,11 +260,7 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 		}
 		handle := uint32(i + 1)
 		r.handleToPath[handle] = path
-
-		req := opcua.NewMonitoredItemCreateRequestWithDefaults(nodeID, ua.AttributeIDValue, handle)
-		req.RequestedParameters.QueueSize = r.config.Subscription.QueueSize
-		req.RequestedParameters.DiscardOldest = true
-		items = append(items, req)
+		items = append(items, eventMonitoredItemRequest(nodeID, handle, r.config.Subscription.QueueSize))
 	}
 
 	if len(items) == 0 {
@@ -220,61 +269,52 @@ func (r *subscriptionReceiver) connect(ctx context.Context) error {
 
 	resp, err := sub.Monitor(ctx, ua.TimestampsToReturnBoth, items...)
 	if err != nil {
-		return fmt.Errorf("monitor items: %w", err)
+		return fmt.Errorf("monitor event items: %w", err)
 	}
 	for i, res := range resp.Results {
 		if res.StatusCode != ua.StatusOK {
-			r.settings.Logger.Warn("MonitoredItem creation returned non-OK status",
+			r.settings.Logger.Warn("Event MonitoredItem creation returned non-OK status",
 				zap.Int("index", i),
 				zap.Uint32("status_code", uint32(res.StatusCode)),
 			)
 		}
 	}
-	r.settings.Logger.Info("Monitoring log object nodes",
+	r.settings.Logger.Info("Monitoring log object event notifiers",
 		zap.Int("count", len(items)))
 	return nil
 }
 
-// runLoop reads from the notification channel and forwards decoded log records
-// to the consumer pipeline. It also handles re-connection after failures.
 func (r *subscriptionReceiver) runLoop(ctx context.Context) {
 	defer close(r.doneCh)
-
 	reconnectAttempts := uint32(0)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-
 		case notif, ok := <-r.notifCh:
 			if !ok {
-				// Channel closed – the subscription broke.
 				if err := r.reconnect(ctx, &reconnectAttempts); err != nil {
 					r.settings.Logger.Error("OPC UA subscription permanently lost", zap.Error(err))
 					return
 				}
 				continue
 			}
-
 			if notif.Error != nil {
 				r.settings.Logger.Warn("OPC UA publish notification error", zap.Error(notif.Error))
 				continue
 			}
-
 			logs := r.decodeNotification(notif)
 			if logs.LogRecordCount() == 0 {
 				continue
 			}
-
 			if err := r.consumer.ConsumeLogs(ctx, logs); err != nil {
-				r.settings.Logger.Error("Failed to forward OPC UA log records", zap.Error(err))
+				r.settings.Logger.Error("Failed to forward OPC UA log events", zap.Error(err))
 			}
 		}
 	}
 }
 
-// reconnect tears down stale resources and re-runs connect with back-off.
 func (r *subscriptionReceiver) reconnect(ctx context.Context, attempts *uint32) error {
 	maxAttempts := r.config.Subscription.MaxReconnectAttempts
 	delay := r.config.Subscription.ReconnectDelay
@@ -286,67 +326,45 @@ func (r *subscriptionReceiver) reconnect(ctx context.Context, attempts *uint32) 
 		*attempts++
 		r.settings.Logger.Info("Attempting OPC UA subscription reconnect",
 			zap.Uint32("attempt", *attempts))
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(delay):
 		}
-
-		// Tear down stale resources before re-connecting.
 		r.cleanup(ctx)
 		r.handleToPath = make(map[uint32]string)
-
 		if err := r.connect(ctx); err != nil {
 			r.settings.Logger.Warn("Reconnect attempt failed",
 				zap.Error(err), zap.Uint32("attempt", *attempts))
 			continue
 		}
-
 		r.settings.Logger.Info("OPC UA subscription reconnected")
 		*attempts = 0
 		return nil
 	}
 }
 
-// decodeNotification converts a raw OPC UA PublishNotificationData into a
-// plog.Logs batch.
-//
-// Each DataChangeNotification item is expected to carry a LogRecordExtObj
-// ExtensionObject (registered in log_record_type.go).  gopcua decodes the
-// ExtensionObject automatically via the type registry; we just need to
-// type-assert and hand it to the Transformer.
+// decodeNotification converts an EventNotificationList into plog.Logs.
 func (r *subscriptionReceiver) decodeNotification(notif *opcua.PublishNotificationData) plog.Logs {
 	logs := plog.NewLogs()
 
-	dcn, ok := notif.Value.(*ua.DataChangeNotification)
+	enl, ok := notif.Value.(*ua.EventNotificationList)
 	if !ok {
-		// StatusChangeNotification or KeepAlive – nothing to do.
+		// Not an event notification (DataChange or KeepAlive) – ignore.
 		return logs
 	}
 
-	for _, item := range dcn.MonitoredItems {
-		if item.Value == nil || item.Value.Value == nil || item.Value.Value.Value() == nil {
+	for _, event := range enl.Events {
+		if event == nil || len(event.EventFields) == 0 {
 			continue
 		}
-
-		// DataValue.Value is *ua.Variant; unwrap to interface{} with .Value().
-		// gopcua wraps decoded ExtensionObjects in *ua.ExtensionObject, so we
-		// unwrap that layer before asserting to *LogRecordExtObj.
-		rawVal := item.Value.Value.Value()
-		if eo, isEO := rawVal.(*ua.ExtensionObject); isEO {
-			rawVal = eo.Value
-		}
-		extObj, ok := rawVal.(*LogRecordExtObj)
-		if !ok {
-			r.settings.Logger.Debug("Subscription item value is not a LogRecordExtObj – skipping",
-				zap.String("type", fmt.Sprintf("%T", rawVal)),
-			)
+		path := r.handleToPath[event.ClientHandle]
+		rec, err := r.decodeEventFields(event.EventFields)
+		if err != nil {
+			r.settings.Logger.Debug("Failed to decode event fields",
+				zap.String("path", path), zap.Error(err))
 			continue
 		}
-
-		path := r.handleToPath[item.ClientHandle]
-		opcuaRecord := logRecordExtObjToOPCUALogRecord(extObj)
 
 		rl := logs.ResourceLogs().AppendEmpty()
 		r.transformer.setResourceAttributes(rl.Resource().Attributes())
@@ -356,14 +374,8 @@ func (r *subscriptionReceiver) decodeNotification(notif *opcua.PublishNotificati
 		sl.Scope().SetVersion("0.1.0")
 
 		lr := sl.LogRecords().AppendEmpty()
-		r.transformer.transformLogRecord(opcuaRecord, lr)
+		r.transformer.transformLogRecord(rec, lr)
 
-		// Override timestamp with the server-side source timestamp when present.
-		if !item.Value.SourceTimestamp.IsZero() {
-			lr.SetTimestamp(pcommon.NewTimestampFromTime(item.Value.SourceTimestamp))
-		}
-
-		// Attach the log_object_path as an extra attribute for traceability.
 		if path != "" {
 			lr.Attributes().PutStr("opcua.log_object_path", path)
 		}
@@ -371,55 +383,131 @@ func (r *subscriptionReceiver) decodeNotification(notif *opcua.PublishNotificati
 	return logs
 }
 
-// logRecordExtObjToOPCUALogRecord converts the wire-decoded LogRecordExtObj
-// (from log_record_type.go) into the testdata.OPCUALogRecord that Transformer
-// already knows how to handle. This keeps all field-mapping logic in one place.
-func logRecordExtObjToOPCUALogRecord(ext *LogRecordExtObj) testdata.OPCUALogRecord {
-	rec := testdata.OPCUALogRecord{
-		Timestamp:  ext.Time,
-		Severity:   ext.Severity,
-		Message:    ext.Message,
-		SourceName: ext.SourceName,
-		TraceID:    ext.TraceIDHex(),
-		SpanID:     ext.SpanIDHex(),
-		Attributes: ext.AdditionalData,
+// decodeEventFields maps the ordered EventFieldList values (matching
+// logEventSelectClauses) into a testdata.OPCUALogRecord.
+func (r *subscriptionReceiver) decodeEventFields(fields []*ua.Variant) (testdata.OPCUALogRecord, error) {
+	if len(fields) < fieldIdxCount {
+		return testdata.OPCUALogRecord{}, fmt.Errorf(
+			"expected %d event fields, got %d", fieldIdxCount, len(fields))
 	}
-	if ext.SourceNode != nil {
-		rec.SourceNamespace = ext.SourceNode.Namespace()
-		switch ext.SourceNode.Type() {
-		case ua.NodeIDTypeNumeric:
+
+	rec := testdata.OPCUALogRecord{
+		Attributes: make(map[string]interface{}),
+	}
+
+	if t, ok := variantTime(fields[fieldIdxTime]); ok {
+		rec.Timestamp = t
+	}
+	if s, ok := variantUInt16(fields[fieldIdxSeverity]); ok {
+		rec.Severity = s
+	}
+	if m, ok := variantLocalizedText(fields[fieldIdxMessage]); ok {
+		rec.Message = m
+	}
+	if sn, ok := variantString(fields[fieldIdxSourceName]); ok {
+		rec.SourceName = sn
+	}
+	if node, ok := variantNodeID(fields[fieldIdxSourceNode]); ok && node != nil {
+		rec.SourceNamespace = node.Namespace()
+		switch node.Type() {
+		case ua.NodeIDTypeNumeric, ua.NodeIDTypeTwoByte, ua.NodeIDTypeFourByte:
 			rec.SourceIDType = "Numeric"
-			rec.SourceID = fmt.Sprintf("%d", ext.SourceNode.IntID())
+			rec.SourceID = fmt.Sprintf("%d", node.IntID())
 		case ua.NodeIDTypeString:
 			rec.SourceIDType = "String"
-			rec.SourceID = ext.SourceNode.StringID()
+			rec.SourceID = node.StringID()
 		default:
-			rec.SourceIDType = ext.SourceNode.Type().String()
-			rec.SourceID = ext.SourceNode.String()
+			rec.SourceIDType = node.Type().String()
+			rec.SourceID = node.String()
 		}
 	}
-	if rec.Attributes == nil {
-		rec.Attributes = make(map[string]interface{})
+
+	// TraceContext: ExtensionObject wrapping LogRecordExtObj
+	if fields[fieldIdxTraceContext] != nil {
+		if ext, ok := fields[fieldIdxTraceContext].Value().(*ua.ExtensionObject); ok && ext != nil {
+			if lrExt, ok := ext.Value.(*LogRecordExtObj); ok && lrExt != nil {
+				rec.TraceID = lrExt.TraceIDHex()
+				rec.SpanID = lrExt.SpanIDHex()
+			}
+		}
 	}
-	return rec
+
+	// AdditionalData: map[string]interface{}
+	if fields[fieldIdxAdditionalData] != nil {
+		if m, ok := fields[fieldIdxAdditionalData].Value().(map[string]interface{}); ok {
+			for k, v := range m {
+				rec.Attributes[k] = v
+			}
+		}
+	}
+
+	if rec.Timestamp.IsZero() {
+		rec.Timestamp = time.Now().UTC()
+	}
+	return rec, nil
+}
+
+// ── Variant extraction helpers ────────────────────────────────────────────
+
+func variantTime(v *ua.Variant) (time.Time, bool) {
+	if v == nil {
+		return time.Time{}, false
+	}
+	t, ok := v.Value().(time.Time)
+	return t, ok
+}
+
+func variantUInt16(v *ua.Variant) (uint16, bool) {
+	if v == nil {
+		return 0, false
+	}
+	switch val := v.Value().(type) {
+	case uint16:
+		return val, true
+	case int16:
+		return uint16(val), true //nolint:gosec
+	}
+	return 0, false
+}
+
+func variantString(v *ua.Variant) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	s, ok := v.Value().(string)
+	return s, ok
+}
+
+func variantLocalizedText(v *ua.Variant) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	switch val := v.Value().(type) {
+	case *ua.LocalizedText:
+		if val != nil {
+			return val.Text, true
+		}
+	case string:
+		return val, true
+	}
+	return "", false
+}
+
+func variantNodeID(v *ua.Variant) (*ua.NodeID, bool) {
+	if v == nil {
+		return nil, false
+	}
+	n, ok := v.Value().(*ua.NodeID)
+	return n, ok
 }
 
 // resolveNodeID converts a log_object_path string to a *ua.NodeID.
-// Accepts standard NodeID strings ("ns=2;i=1001", "ns=2;s=ServerLog", "i=2042")
-// and the browse-path shortcuts that opcuaClient.resolveBrowsePath supports.
-// Plain strings without a recognised NodeID prefix are treated as browse paths,
-// not passed to ua.ParseNodeID (which accepts any string as a string-type NodeID).
 func resolveNodeID(path string) (*ua.NodeID, error) {
-	// Only attempt ParseNodeID when the path looks like a NodeID literal, i.e.
-	// it contains "=" which separates the type prefix from the identifier value.
-	// Examples: "ns=2;i=1001", "i=2042", "ns=2;s=Tag", "g=...", "b=..."
 	if strings.Contains(path, "=") {
 		if nodeID, err := ua.ParseNodeID(path); err == nil {
 			return nodeID, nil
 		}
 	}
-
-	// Fall back to the static browse-path table that client.go maintains.
 	knownPaths := map[string]uint32{
 		"Objects/ServerLog":        2042,
 		"Objects/Server/ServerLog": 2042,
@@ -429,14 +517,12 @@ func resolveNodeID(path string) (*ua.NodeID, error) {
 	if id, ok := knownPaths[path]; ok {
 		return ua.NewNumericNodeID(0, id), nil
 	}
-
 	return nil, fmt.Errorf(
 		"cannot resolve %q to a NodeID – use a NodeID string (e.g. \"ns=2;i=1001\") "+
 			"or a known browse path", path)
 }
 
-// selectEndpointForConfig is the endpoint-selection logic extracted from
-// opcuaClient.selectEndpoint so both code paths share the same behaviour.
+// selectEndpointForConfig picks the best matching endpoint.
 func selectEndpointForConfig(endpoints []*ua.EndpointDescription, cfg *Config) *ua.EndpointDescription {
 	for _, ep := range endpoints {
 		policyMatch := false
@@ -465,7 +551,6 @@ func selectEndpointForConfig(endpoints []*ua.EndpointDescription, cfg *Config) *
 			return ep
 		}
 	}
-	// Fallback: any endpoint matching the security mode.
 	for _, ep := range endpoints {
 		if cfg.SecurityMode == "None" && ep.SecurityMode == ua.MessageSecurityModeNone {
 			return ep

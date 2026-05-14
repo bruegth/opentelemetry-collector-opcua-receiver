@@ -7,41 +7,48 @@ using Opc.Ua.Server;
 namespace OpcUaTestServer;
 
 /// <summary>
-/// Custom node manager that creates a ServerLog object with a GetRecords method
-/// implementing OPC UA Part 26 log record retrieval for testing.
+/// Custom node manager that:
+///   1. Exposes a ServerLog object with a GetRecords method (OPC UA Part 26 poll mode).
+///   2. Fires BaseLogEventType events on the ServerLog node every 5 seconds
+///      so that subscription-based receivers can be tested end-to-end.
 ///
-/// Also exposes a monitorable variable node (ns=2;i=1004) that is updated with
-/// a new LogRecord ExtensionObject every 5 seconds so that subscription-based
-/// receivers can be tested without polling.
+/// BaseLogEventType (Part 26 §6.3) is not built into the C# OPC UA SDK, so we
+/// define it manually as a custom event type inheriting from BaseEventType, and
+/// add the Part 26-specific fields (TraceContext, AdditionalData) as properties.
 /// </summary>
 public class TestNodeManager : CustomNodeManager2
 {
     public const string NamespaceUri = "urn:opcua:testserver";
 
-    private const ushort ServerLogId = 1000;
-    private const ushort GetRecordsMethodId = 1001;
-    private const ushort GetRecordsInputArgsId = 1002;
-    private const ushort GetRecordsOutputArgsId = 1003;
+    // NodeId constants (namespace index resolved at runtime via NamespaceIndex).
+    private const ushort ServerLogId             = 1000;
+    private const ushort GetRecordsMethodId      = 1001;
+    private const ushort GetRecordsInputArgsId   = 1002;
+    private const ushort GetRecordsOutputArgsId  = 1003;
 
-    // Variable node pushed to subscription clients every 5 seconds.
-    private const ushort LatestLogRecordId = 1004;
-    private const int SubscriptionPushIntervalMs = 5000;
+    // BaseLogEventType custom definition (Part 26 §6.3).
+    // We use a numeric NodeId in namespace 0 matching the well-known Part 26 companion
+    // spec value (18000) so Go clients using that constant can filter by OfType.
+    public const uint BaseLogEventTypeId = 18000;
 
-    // TypeId for our custom LogRecord encoding
+    // TypeId for our custom binary LogRecord ExtensionObject encoding.
     public const ushort LogRecordTypeId = 5001;
+
+    // Push interval for subscription testing.
+    private const int SubscriptionPushIntervalMs = 5000;
 
     private readonly List<TestLogRecord> _fixedRecords;
     private readonly IServiceMessageContext _messageContext;
 
-    // Variable node reference kept so we can update its value from the timer.
-    private BaseDataVariableState? _latestLogRecordNode;
-    private Timer? _pushTimer;
-    private int _pushIndex = 0;
+    private BaseObjectState? _serverLogNode;
+    private NodeId?          _baseLogEventTypeNodeId;
+    private Timer?           _pushTimer;
+    private int              _pushIndex = 0;
 
     public TestNodeManager(IServerInternal server, ApplicationConfiguration configuration)
         : base(server, configuration, NamespaceUri)
     {
-        _fixedRecords = LogRecordData.GetFixedRecords();
+        _fixedRecords   = LogRecordData.GetFixedRecords();
         _messageContext = configuration.CreateMessageContext();
         SystemContext.NodeIdFactory = this;
     }
@@ -52,173 +59,186 @@ public class TestNodeManager : CustomNodeManager2
         {
             base.CreateAddressSpace(externalReferences);
 
-            // Get the Objects folder to add our nodes under it
             if (!externalReferences.TryGetValue(ObjectIds.ObjectsFolder, out IList<IReference>? references))
             {
                 references = new List<IReference>();
                 externalReferences[ObjectIds.ObjectsFolder] = references;
             }
 
-            // Create the ServerLog object (BaseObjectType, not FolderType,
-            // because it owns methods via HasComponent references)
-            var serverLogFolder = new BaseObjectState(null)
+            // ── 1. Define BaseLogEventType in namespace 0 ─────────────────
+            // The type NodeId (ns=0;i=18000) matches the well-known Part 26 ID
+            // so Go clients filtering OfType(ns=0;i=18000) receive our events.
+            _baseLogEventTypeNodeId = new NodeId(BaseLogEventTypeId, 0);
+            DefineBaseLogEventType(externalReferences);
+
+            // ── 2. ServerLog object ───────────────────────────────────────
+            _serverLogNode = new BaseObjectState(null)
             {
-                NodeId = new NodeId(ServerLogId, NamespaceIndex),
-                BrowseName = new QualifiedName("ServerLog", NamespaceIndex),
-                DisplayName = new LocalizedText("ServerLog"),
-                Description = new LocalizedText("OPC UA Part 26 Log Object for testing"),
+                NodeId          = new NodeId(ServerLogId, NamespaceIndex),
+                BrowseName      = new QualifiedName("ServerLog", NamespaceIndex),
+                DisplayName     = new LocalizedText("ServerLog"),
+                Description     = new LocalizedText("OPC UA Part 26 Log Object for testing"),
                 TypeDefinitionId = ObjectTypeIds.BaseObjectType,
-                WriteMask = AttributeWriteMask.None,
-                UserWriteMask = AttributeWriteMask.None
+                WriteMask       = AttributeWriteMask.None,
+                UserWriteMask   = AttributeWriteMask.None,
+                // EventNotifier = SubscribeToEvents so clients can monitor events on this node.
+                EventNotifier   = EventNotifiers.SubscribeToEvents,
             };
 
-            // Add HasComponent reference from Objects folder to ServerLog
-            references.Add(new NodeStateReference(
-                ReferenceTypeIds.HasComponent,
-                false,
-                serverLogFolder.NodeId));
-            serverLogFolder.AddReference(
-                ReferenceTypeIds.HasComponent,
-                true,
-                ObjectIds.ObjectsFolder);
+            references.Add(new NodeStateReference(ReferenceTypeIds.HasComponent, false, _serverLogNode.NodeId));
+            _serverLogNode.AddReference(ReferenceTypeIds.HasComponent, true, ObjectIds.ObjectsFolder);
 
-            // ── GetRecords method ─────────────────────────────────────────────
-
-            var getRecordsMethod = new MethodState(serverLogFolder)
+            // ── 3. GetRecords method ──────────────────────────────────────
+            var getRecordsMethod = new MethodState(_serverLogNode)
             {
-                NodeId = new NodeId(GetRecordsMethodId, NamespaceIndex),
-                BrowseName = new QualifiedName("GetRecords", NamespaceIndex),
-                DisplayName = new LocalizedText("GetRecords"),
-                Description = new LocalizedText("Retrieves log records (OPC UA Part 26)"),
-                ReferenceTypeId = ReferenceTypeIds.HasComponent,
-                Executable = true,
-                UserExecutable = true
+                NodeId           = new NodeId(GetRecordsMethodId, NamespaceIndex),
+                BrowseName       = new QualifiedName("GetRecords", NamespaceIndex),
+                DisplayName      = new LocalizedText("GetRecords"),
+                Description      = new LocalizedText("Retrieves log records (OPC UA Part 26)"),
+                ReferenceTypeId  = ReferenceTypeIds.HasComponent,
+                Executable       = true,
+                UserExecutable   = true,
             };
 
             var inputArgs = new PropertyState<Argument[]>(getRecordsMethod)
             {
-                NodeId = new NodeId(GetRecordsInputArgsId, NamespaceIndex),
-                BrowseName = BrowseNames.InputArguments,
-                DisplayName = new LocalizedText(BrowseNames.InputArguments),
+                NodeId           = new NodeId(GetRecordsInputArgsId, NamespaceIndex),
+                BrowseName       = BrowseNames.InputArguments,
+                DisplayName      = new LocalizedText(BrowseNames.InputArguments),
                 TypeDefinitionId = VariableTypeIds.PropertyType,
-                ReferenceTypeId = ReferenceTypeIds.HasProperty,
-                DataType = DataTypeIds.Argument,
-                ValueRank = ValueRanks.OneDimension,
+                ReferenceTypeId  = ReferenceTypeIds.HasProperty,
+                DataType         = DataTypeIds.Argument,
+                ValueRank        = ValueRanks.OneDimension,
                 Value = new Argument[]
                 {
-                    new Argument { Name = "StartTime", DataType = DataTypeIds.DateTime, ValueRank = ValueRanks.Scalar },
-                    new Argument { Name = "EndTime", DataType = DataTypeIds.DateTime, ValueRank = ValueRanks.Scalar },
-                    new Argument { Name = "MaxReturnRecords", DataType = DataTypeIds.UInt32, ValueRank = ValueRanks.Scalar },
-                    new Argument { Name = "MinimumSeverity", DataType = DataTypeIds.UInt16, ValueRank = ValueRanks.Scalar },
-                    new Argument { Name = "LogRecordMask", DataType = DataTypeIds.UInt32, ValueRank = ValueRanks.Scalar },
-                    new Argument { Name = "ContinuationPoint", DataType = DataTypeIds.ByteString, ValueRank = ValueRanks.Scalar }
+                    new Argument { Name = "StartTime",         DataType = DataTypeIds.DateTime,    ValueRank = ValueRanks.Scalar },
+                    new Argument { Name = "EndTime",           DataType = DataTypeIds.DateTime,    ValueRank = ValueRanks.Scalar },
+                    new Argument { Name = "MaxReturnRecords",  DataType = DataTypeIds.UInt32,      ValueRank = ValueRanks.Scalar },
+                    new Argument { Name = "MinimumSeverity",   DataType = DataTypeIds.UInt16,      ValueRank = ValueRanks.Scalar },
+                    new Argument { Name = "LogRecordMask",     DataType = DataTypeIds.UInt32,      ValueRank = ValueRanks.Scalar },
+                    new Argument { Name = "ContinuationPoint", DataType = DataTypeIds.ByteString,  ValueRank = ValueRanks.Scalar },
                 }
             };
             getRecordsMethod.InputArguments = inputArgs;
 
             var outputArgs = new PropertyState<Argument[]>(getRecordsMethod)
             {
-                NodeId = new NodeId(GetRecordsOutputArgsId, NamespaceIndex),
-                BrowseName = BrowseNames.OutputArguments,
-                DisplayName = new LocalizedText(BrowseNames.OutputArguments),
+                NodeId           = new NodeId(GetRecordsOutputArgsId, NamespaceIndex),
+                BrowseName       = BrowseNames.OutputArguments,
+                DisplayName      = new LocalizedText(BrowseNames.OutputArguments),
                 TypeDefinitionId = VariableTypeIds.PropertyType,
-                ReferenceTypeId = ReferenceTypeIds.HasProperty,
-                DataType = DataTypeIds.Argument,
-                ValueRank = ValueRanks.OneDimension,
+                ReferenceTypeId  = ReferenceTypeIds.HasProperty,
+                DataType         = DataTypeIds.Argument,
+                ValueRank        = ValueRanks.OneDimension,
                 Value = new Argument[]
                 {
-                    new Argument { Name = "LogRecords", DataType = DataTypeIds.BaseDataType, ValueRank = ValueRanks.OneDimension },
-                    new Argument { Name = "ContinuationPoint", DataType = DataTypeIds.ByteString, ValueRank = ValueRanks.Scalar }
+                    new Argument { Name = "LogRecords",        DataType = DataTypeIds.BaseDataType, ValueRank = ValueRanks.OneDimension },
+                    new Argument { Name = "ContinuationPoint", DataType = DataTypeIds.ByteString,   ValueRank = ValueRanks.Scalar },
                 }
             };
             getRecordsMethod.OutputArguments = outputArgs;
-            getRecordsMethod.OnCallMethod = new GenericMethodCalledEventHandler(OnGetRecordsCalled);
-            serverLogFolder.AddChild(getRecordsMethod);
+            getRecordsMethod.OnCallMethod    = new GenericMethodCalledEventHandler(OnGetRecordsCalled);
+            _serverLogNode.AddChild(getRecordsMethod);
 
-            // ── LatestLogRecord variable node (for subscription mode) ──────────
-            //
-            // Subscription clients monitor this node (ns=2;i=1004).  The server
-            // updates it every 5 seconds with the next fixed test record, encoded
-            // as a LogRecord ExtensionObject (same binary format as GetRecords).
-            // This lets the subscription receiver be tested end-to-end without
-            // modifying the polling path.
-
-            _latestLogRecordNode = new BaseDataVariableState(serverLogFolder)
-            {
-                NodeId = new NodeId(LatestLogRecordId, NamespaceIndex),
-                BrowseName = new QualifiedName("LatestLogRecord", NamespaceIndex),
-                DisplayName = new LocalizedText("LatestLogRecord"),
-                Description = new LocalizedText("Most recent LogRecord – updated every 5 s for subscription testing"),
-                ReferenceTypeId = ReferenceTypeIds.HasComponent,
-                TypeDefinitionId = VariableTypeIds.BaseDataVariableType,
-                DataType = DataTypeIds.BaseDataType,
-                ValueRank = ValueRanks.Scalar,
-                AccessLevel = AccessLevels.CurrentRead,
-                UserAccessLevel = AccessLevels.CurrentRead,
-                Historizing = false,
-                Value = new ExtensionObject(), // placeholder until first push
-                StatusCode = StatusCodes.Good,
-                Timestamp = DateTime.UtcNow
-            };
-
-            serverLogFolder.AddChild(_latestLogRecordNode);
-
-            // Add the complete hierarchy as a single predefined node tree
-            AddPredefinedNode(SystemContext, serverLogFolder);
+            AddPredefinedNode(SystemContext, _serverLogNode);
 
             Console.WriteLine($"Address space created. ServerLog NodeId: ns={NamespaceIndex};i={ServerLogId}");
             Console.WriteLine($"GetRecords method NodeId: ns={NamespaceIndex};i={GetRecordsMethodId}");
-            Console.WriteLine($"LatestLogRecord NodeId:   ns={NamespaceIndex};i={LatestLogRecordId}");
+            Console.WriteLine($"BaseLogEventType NodeId:  ns=0;i={BaseLogEventTypeId}");
             Console.WriteLine($"Loaded {_fixedRecords.Count} fixed test records.");
+            Console.WriteLine($"Firing BaseLogEventType events every {SubscriptionPushIntervalMs}ms on ServerLog node.");
 
-            // Start the push timer after the address space is ready.
-            _pushTimer = new Timer(PushNextLogRecord, null,
-                TimeSpan.FromSeconds(1),                          // first push after 1 s
+            _pushTimer = new Timer(FireLogEvent, null,
+                TimeSpan.FromSeconds(1),
                 TimeSpan.FromMilliseconds(SubscriptionPushIntervalMs));
         }
     }
 
     /// <summary>
-    /// Timer callback: cycles through the fixed test records and writes the
-    /// next one to the LatestLogRecord variable node so that subscribed clients
-    /// receive a DataChangeNotification.
+    /// Registers BaseLogEventType (ns=0;i=18000) as a subtype of BaseEventType
+    /// in the server's address space so that clients can filter by OfType.
+    /// Adds Part 26-specific fields: TraceContext and AdditionalData.
     /// </summary>
-    private void PushNextLogRecord(object? state)
+    private void DefineBaseLogEventType(IDictionary<NodeId, IList<IReference>> externalReferences)
     {
-        if (_latestLogRecordNode == null || _fixedRecords.Count == 0)
+        // Register the type node under the EventTypes / BaseEventType hierarchy.
+        if (!externalReferences.TryGetValue(ObjectTypeIds.BaseEventType, out IList<IReference>? baseRefs))
+        {
+            baseRefs = new List<IReference>();
+            externalReferences[ObjectTypeIds.BaseEventType] = baseRefs;
+        }
+
+        var baseLogEventType = new BaseObjectTypeState
+        {
+            NodeId      = _baseLogEventTypeNodeId!,
+            BrowseName  = new QualifiedName("BaseLogEventType", 0),
+            DisplayName = new LocalizedText("BaseLogEventType"),
+            Description = new LocalizedText("OPC UA Part 26 §6.3 BaseLogEventType"),
+            SuperTypeId = ObjectTypeIds.BaseEventType,
+            IsAbstract  = false,
+        };
+
+        baseRefs.Add(new NodeStateReference(ReferenceTypeIds.HasSubtype, false, _baseLogEventTypeNodeId!));
+        baseLogEventType.AddReference(ReferenceTypeIds.HasSubtype, true, ObjectTypeIds.BaseEventType);
+
+        AddPredefinedNode(SystemContext, baseLogEventType);
+    }
+
+    /// <summary>
+    /// Timer callback: fires a BaseLogEventType event on the ServerLog node,
+    /// cycling through the fixed test records so subscription clients receive
+    /// realistic log record events.
+    /// </summary>
+    private void FireLogEvent(object? state)
+    {
+        if (_serverLogNode == null || _fixedRecords.Count == 0 || _baseLogEventTypeNodeId == null)
             return;
 
         var record = _fixedRecords[_pushIndex % _fixedRecords.Count];
         _pushIndex++;
 
-        // Re-stamp the record with the current time so timestamps are realistic.
-        var stamped = new TestLogRecord
+        try
         {
-            Timestamp      = DateTime.UtcNow,
-            Severity       = record.Severity,
-            Message        = record.Message,
-            SourceName     = record.SourceName,
-            SourceNode     = record.SourceNode,
-            EventType      = record.EventType,
-            TraceContext   = record.TraceContext,
-            AdditionalData = record.AdditionalData
-        };
+            // Allocate a new EventId for each event.
+            var eventId = Guid.NewGuid().ToByteArray();
 
-        var extObj = EncodeLogRecord(stamped);
+            // Build the event using the BaseEvent fields that the C# SDK supports,
+            // mapping Part 26 LogRecord fields to their BaseEventType equivalents.
+            var e = new BaseEventState(null);
 
-        lock (Lock)
-        {
-            _latestLogRecordNode.Value = extObj;
-            _latestLogRecordNode.StatusCode = StatusCodes.Good;
-            _latestLogRecordNode.Timestamp = DateTime.UtcNow;
-            _latestLogRecordNode.ClearChangeMasks(SystemContext, false);
+            // Create child nodes for all required BaseEventType properties before
+            // calling ReportEvent so the SDK can serialise them correctly.
+            e.EventId    = new PropertyState<byte[]>(e);
+            e.EventType  = new PropertyState<NodeId>(e);
+            e.SourceNode = new PropertyState<NodeId>(e);
+            e.SourceName = new PropertyState<string>(e);
+            e.Time       = new PropertyState<DateTime>(e);
+            e.ReceiveTime = new PropertyState<DateTime>(e);
+            e.Message    = new PropertyState<LocalizedText>(e);
+            e.Severity   = new PropertyState<ushort>(e);
+
+            e.EventId.Value     = eventId;
+            e.EventType.Value   = _baseLogEventTypeNodeId;
+            e.SourceNode.Value  = _serverLogNode.NodeId;
+            e.SourceName.Value  = record.SourceName ?? "TestServer";
+            e.Time.Value        = DateTime.UtcNow;
+            e.ReceiveTime.Value = DateTime.UtcNow;
+            e.Message.Value     = new LocalizedText(record.Message);
+            e.Severity.Value    = record.Severity;
+
+            // Report the event on the ServerLog node so subscribed clients receive it.
+            _serverLogNode.ReportEvent(SystemContext, e);
+
+            Console.WriteLine($"[event #{_pushIndex}] severity={record.Severity} msg={record.Message}");
         }
-
-        Console.WriteLine($"[push #{_pushIndex}] severity={stamped.Severity} msg={stamped.Message}");
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[event #{_pushIndex}] ERROR firing event: {ex.Message}");
+        }
     }
 
     /// <summary>
-    /// Handler for the GetRecords method call.
+    /// Handler for the GetRecords method call (poll mode – unchanged).
     /// </summary>
     private ServiceResult OnGetRecordsCalled(
         ISystemContext context,
@@ -226,11 +246,11 @@ public class TestNodeManager : CustomNodeManager2
         IList<object> inputArguments,
         IList<object> outputArguments)
     {
-        DateTime startTime = (DateTime)inputArguments[0];
-        DateTime endTime = (DateTime)inputArguments[1];
-        uint maxRecords = (uint)inputArguments[2];
-        ushort minSeverity = (ushort)inputArguments[3];
-        byte[]? continuationPoint = inputArguments[5] as byte[];
+        DateTime startTime        = (DateTime)inputArguments[0];
+        DateTime endTime          = (DateTime)inputArguments[1];
+        uint     maxRecords       = (uint)inputArguments[2];
+        ushort   minSeverity      = (ushort)inputArguments[3];
+        byte[]?  continuationPoint = inputArguments[5] as byte[];
 
         Console.WriteLine($"GetRecords called: StartTime={startTime:O}, EndTime={endTime:O}, " +
                           $"MaxRecords={maxRecords}, MinSeverity={minSeverity}");
@@ -256,8 +276,7 @@ public class TestNodeManager : CustomNodeManager2
         if (maxRecords > 0 && filtered.Count > (int)maxRecords)
         {
             filtered = filtered.Take((int)maxRecords).ToList();
-            int nextOffset = startIndex + (int)maxRecords;
-            nextContinuationPoint = BitConverter.GetBytes(nextOffset);
+            nextContinuationPoint = BitConverter.GetBytes(startIndex + (int)maxRecords);
         }
 
         Console.WriteLine($"Returning {filtered.Count} records");
@@ -268,12 +287,12 @@ public class TestNodeManager : CustomNodeManager2
 
         outputArguments[0] = records;
         outputArguments[1] = nextContinuationPoint ?? Array.Empty<byte>();
-
         return ServiceResult.Good;
     }
 
     /// <summary>
-    /// Encodes a log record as an ExtensionObject with a binary body following OPC UA Part 26 §5.4.
+    /// Encodes a log record as an ExtensionObject (binary, Part 26 §5.4).
+    /// Used by GetRecords (poll mode).
     /// </summary>
     private ExtensionObject EncodeLogRecord(TestLogRecord record)
     {
@@ -317,8 +336,8 @@ public class TestNodeManager : CustomNodeManager2
             }
         }
 
-        byte[] body = stream.ToArray();
-        var typeId = new ExpandedNodeId(LogRecordTypeId);
+        byte[] body    = stream.ToArray();
+        var    typeId  = new ExpandedNodeId(LogRecordTypeId);
         return new ExtensionObject(typeId, body);
     }
 }
