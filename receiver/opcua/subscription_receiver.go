@@ -20,9 +20,6 @@ import (
 	"github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/testdata"
 )
 
-// baseLogEventTypeID is the well-known NodeID for BaseLogEventType per OPC UA Part 26 §6.3.
-var baseLogEventTypeID = ua.NewNumericNodeID(0, 18000)
-
 // Event field index constants – must stay in sync with logEventSelectClauses().
 const (
 	fieldIdxTime           = 0
