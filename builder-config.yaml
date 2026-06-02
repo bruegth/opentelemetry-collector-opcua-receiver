@@ -2,6 +2,7 @@ dist:
   name: otelcol-dev
   description: Basic OTel Collector distribution for Developers
   output_path: ./otelcol-dev
+  otelcol_version: 0.152.0
 
 exporters:
   - gomod:
