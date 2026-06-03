@@ -1,333 +1,352 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
-
 package opcua
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/gopcua/opcua"
+	"github.com/gopcua/opcua/id"
+	"github.com/gopcua/opcua/ua"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/collector/pdata/plog"
-
-	"github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/testdata"
+	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/receiver/receivertest"
 )
 
-func TestTransformLogs(t *testing.T) {
-	transformer := NewTransformer("opc.tcp://test:4840", "opcua-server", "")
+// ── helpers ───────────────────────────────────────────────────────────────
 
-	timestamp := time.Now()
-	opcuaRecords := []testdata.OPCUALogRecord{
-		{
-			Timestamp: timestamp,
-			Severity:  300,
-
-			Message:         "Test message 1",
-			SourceName:      "TestSource",
-			SourceNamespace: 1,
-			SourceIDType:    "Numeric",
-			SourceID:        "100",
-			TraceID:         "0123456789abcdef0123456789abcdef",
-			SpanID:          "0123456789abcdef",
-			TraceFlags:      1,
-			Attributes: map[string]interface{}{
-				"key1": "value1",
-				"key2": 42,
-			},
-		},
-		{
-			Timestamp: timestamp.Add(time.Second),
-			Severity:  700,
-
-			Message:         "Test error message",
-			SourceName:      "ErrorSource",
-			SourceNamespace: 2,
-			SourceIDType:    "String",
-			SourceID:        "ErrorDevice",
-			TraceID:         "fedcba9876543210fedcba9876543210",
-			SpanID:          "fedcba9876543210",
-			TraceFlags:      0,
-			Attributes: map[string]interface{}{
-				"error_code": 500,
-			},
-		},
-	}
-
-	logs := transformer.TransformLogs(opcuaRecords)
-
-	require.Equal(t, 1, logs.ResourceLogs().Len())
-
-	resourceLogs := logs.ResourceLogs().At(0)
-
-	// Check resource attributes
-	resource := resourceLogs.Resource()
-	serverAddrAttr, ok := resource.Attributes().Get("server.address")
-	require.True(t, ok)
-	assert.Equal(t, "test", serverAddrAttr.Str())
-
-	serverPortAttr, ok := resource.Attributes().Get("server.port")
-	require.True(t, ok)
-	assert.Equal(t, int64(4840), serverPortAttr.Int())
-
-	serviceNameAttr, ok := resource.Attributes().Get("service.name")
-	require.True(t, ok)
-	assert.Equal(t, "opcua-server", serviceNameAttr.Str())
-
-	// Check scope logs
-	require.Equal(t, 1, resourceLogs.ScopeLogs().Len())
-	scopeLogs := resourceLogs.ScopeLogs().At(0)
-	assert.Equal(t, "github.com/bruegth/opentelemetry-collector-opcua-receiver", scopeLogs.Scope().Name())
-
-	// Check log records
-	require.Equal(t, 2, scopeLogs.LogRecords().Len())
-
-	// First log record
-	logRecord1 := scopeLogs.LogRecords().At(0)
-	assert.Equal(t, plog.SeverityNumberError2, logRecord1.SeverityNumber())
-	assert.Equal(t, "Critical", logRecord1.SeverityText())
-	assert.Equal(t, "Test message 1", logRecord1.Body().Str())
-
-	sourceNameAttr, ok := logRecord1.Attributes().Get("opcua.source.name")
-	require.True(t, ok)
-	assert.Equal(t, "TestSource", sourceNameAttr.Str())
-
-	sourceNsAttr, ok := logRecord1.Attributes().Get("opcua.source.namespace")
-	require.True(t, ok)
-	assert.Equal(t, int64(1), sourceNsAttr.Int())
-
-	sourceIDTypeAttr, ok := logRecord1.Attributes().Get("opcua.source.id_type")
-	require.True(t, ok)
-	assert.Equal(t, "Numeric", sourceIDTypeAttr.Str())
-
-	sourceIDAttr, ok := logRecord1.Attributes().Get("opcua.source.id")
-	require.True(t, ok)
-	assert.Equal(t, "100", sourceIDAttr.Str())
-
-	key1Attr, ok := logRecord1.Attributes().Get("key1")
-	require.True(t, ok)
-	assert.Equal(t, "value1", key1Attr.Str())
-
-	key2Attr, ok := logRecord1.Attributes().Get("key2")
-	require.True(t, ok)
-	assert.Equal(t, int64(42), key2Attr.Int())
-
-	// Second log record
-	logRecord2 := scopeLogs.LogRecords().At(1)
-	assert.Equal(t, plog.SeverityNumberFatal, logRecord2.SeverityNumber())
-	assert.Equal(t, "Emergency", logRecord2.SeverityText())
-	assert.Equal(t, "Test error message", logRecord2.Body().Str())
+func subscriptionConfig() *Config {
+	cfg := createDefaultConfig().(*Config)
+	cfg.CollectionMode = CollectionModeSubscription
+	cfg.LogObjectPaths = []string{"ns=2;i=1000"}
+	return cfg
 }
 
-func TestTransformLogsResourceConfig(t *testing.T) {
-	tests := []struct {
-		name             string
-		serviceName      string
-		serviceNamespace string
-		wantName         string
-		wantNamespace    string
-		hasNamespace     bool
-	}{
-		{
-			name:         "custom service name",
-			serviceName:  "my-plc-server",
-			wantName:     "my-plc-server",
-			hasNamespace: false,
-		},
-		{
-			name:             "custom service name and namespace",
-			serviceName:      "assembly-line",
-			serviceNamespace: "production",
-			wantName:         "assembly-line",
-			wantNamespace:    "production",
-			hasNamespace:     true,
-		},
-		{
-			name:         "empty service name falls back to default",
-			serviceName:  "",
-			wantName:     "opcua-server",
-			hasNamespace: false,
+func newTestReceiver(t *testing.T) *subscriptionReceiver {
+	t.Helper()
+	recv, err := newSubscriptionReceiver(subscriptionConfig(), receivertest.NewNopSettings(Type), consumertest.NewNop())
+	require.NoError(t, err)
+	recv.handleToPath[1] = "ns=2;i=1000"
+	return recv
+}
+
+// makeEventNotification constructs a PublishNotificationData carrying an
+// EventNotificationList with a single event whose fields match logEventSelectClauses().
+func makeEventNotification(handle uint32, fields []*ua.Variant) *opcua.PublishNotificationData {
+	return &opcua.PublishNotificationData{
+		Value: &ua.EventNotificationList{
+			Events: []*ua.EventFieldList{
+				{
+					ClientHandle: handle,
+					EventFields:  fields,
+				},
+			},
 		},
 	}
+}
 
+// makeEventFields builds a full-length field slice for logEventSelectClauses.
+func makeEventFields(ts time.Time, severity uint16, msg, sourceName string) []*ua.Variant {
+	fields := make([]*ua.Variant, fieldIdxCount)
+	fields[fieldIdxTime] = ua.MustVariant(ts)
+	fields[fieldIdxSeverity] = ua.MustVariant(severity)
+	fields[fieldIdxMessage] = ua.MustVariant(&ua.LocalizedText{Text: msg})
+	fields[fieldIdxSourceName] = ua.MustVariant(sourceName)
+	fields[fieldIdxSourceNode] = ua.MustVariant(ua.NewNumericNodeID(1, 100))
+	fields[fieldIdxTraceContext] = ua.MustVariant(uint32(0))    // no trace
+	fields[fieldIdxAdditionalData] = ua.MustVariant(uint32(0)) // no additional data
+	return fields
+}
+
+// ── construction & validation ─────────────────────────────────────────────
+
+func TestNewSubscriptionReceiver_OK(t *testing.T) {
+	recv, err := newSubscriptionReceiver(subscriptionConfig(), receivertest.NewNopSettings(Type), consumertest.NewNop())
+	require.NoError(t, err)
+	assert.NotNil(t, recv)
+}
+
+func TestNewSubscriptionReceiver_NilConsumer(t *testing.T) {
+	_, err := newSubscriptionReceiver(subscriptionConfig(), receivertest.NewNopSettings(Type), nil)
+	assert.Error(t, err)
+}
+
+func TestNewSubscriptionReceiver_InvalidConfig(t *testing.T) {
+	cfg := subscriptionConfig()
+	cfg.Endpoint = ""
+	_, err := newSubscriptionReceiver(cfg, receivertest.NewNopSettings(Type), consumertest.NewNop())
+	assert.Error(t, err)
+}
+
+// ── Config.Validate ───────────────────────────────────────────────────────
+
+func TestConfigValidate_SubscriptionMode(t *testing.T) {
+	t.Run("valid subscription mode", func(t *testing.T) {
+		assert.NoError(t, subscriptionConfig().Validate())
+	})
+	t.Run("invalid collection_mode value", func(t *testing.T) {
+		cfg := subscriptionConfig()
+		cfg.CollectionMode = "streaming"
+		assert.Error(t, cfg.Validate())
+	})
+	t.Run("negative publishing_interval rejected", func(t *testing.T) {
+		cfg := subscriptionConfig()
+		cfg.Subscription.PublishingInterval = -1 * time.Millisecond
+		assert.Error(t, cfg.Validate())
+	})
+	t.Run("zero publishing_interval accepted", func(t *testing.T) {
+		cfg := subscriptionConfig()
+		cfg.Subscription.PublishingInterval = 0
+		assert.NoError(t, cfg.Validate())
+	})
+	t.Run("poll mode collection_interval still required", func(t *testing.T) {
+		cfg := subscriptionConfig()
+		cfg.CollectionMode = CollectionModePoll
+		cfg.CollectionInterval = 0
+		assert.Error(t, cfg.Validate())
+	})
+	t.Run("subscription mode ignores collection_interval", func(t *testing.T) {
+		cfg := subscriptionConfig()
+		cfg.CollectionInterval = 0
+		assert.NoError(t, cfg.Validate())
+	})
+}
+
+// ── Shutdown without Start ────────────────────────────────────────────────
+
+func TestSubscriptionReceiver_ShutdownWithoutStart(t *testing.T) {
+	recv, err := newSubscriptionReceiver(subscriptionConfig(), receivertest.NewNopSettings(Type), consumertest.NewNop())
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.NoError(t, recv.Shutdown(ctx))
+}
+
+// ── decodeNotification ────────────────────────────────────────────────────
+
+func TestDecodeNotification_DataChangIgnored(t *testing.T) {
+	// DataChangeNotification must be silently ignored in event mode.
+	recv := newTestReceiver(t)
+	notif := &opcua.PublishNotificationData{
+		Value: &ua.DataChangeNotification{
+			MonitoredItems: []*ua.MonitoredItemNotification{},
+		},
+	}
+	logs := recv.decodeNotification(notif)
+	assert.Equal(t, 0, logs.LogRecordCount())
+}
+
+func TestDecodeNotification_EmptyEventList(t *testing.T) {
+	recv := newTestReceiver(t)
+	notif := &opcua.PublishNotificationData{
+		Value: &ua.EventNotificationList{Events: nil},
+	}
+	logs := recv.decodeNotification(notif)
+	assert.Equal(t, 0, logs.LogRecordCount())
+}
+
+func TestDecodeNotification_NilEvent(t *testing.T) {
+	recv := newTestReceiver(t)
+	notif := &opcua.PublishNotificationData{
+		Value: &ua.EventNotificationList{
+			Events: []*ua.EventFieldList{nil},
+		},
+	}
+	logs := recv.decodeNotification(notif)
+	assert.Equal(t, 0, logs.LogRecordCount())
+}
+
+func TestDecodeNotification_TooFewFields(t *testing.T) {
+	// Events with fewer fields than expected should be skipped gracefully.
+	recv := newTestReceiver(t)
+	notif := makeEventNotification(1, []*ua.Variant{
+		ua.MustVariant(time.Now()),
+		ua.MustVariant(uint16(75)),
+		// missing remaining fields
+	})
+	logs := recv.decodeNotification(notif)
+	assert.Equal(t, 0, logs.LogRecordCount())
+}
+
+func TestDecodeNotification_ValidEvent(t *testing.T) {
+	recv := newTestReceiver(t)
+
+	ts := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	fields := makeEventFields(ts, 160, "disk pressure detected", "StorageSubsystem")
+	notif := makeEventNotification(1, fields)
+
+	logs := recv.decodeNotification(notif)
+	require.Equal(t, 1, logs.LogRecordCount())
+
+	lr := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	assert.Equal(t, "disk pressure detected", lr.Body().Str())
+	assert.Equal(t, "ns=2;i=1000", lr.Attributes().AsRaw()["opcua.log_object_path"])
+}
+
+func TestDecodeNotification_TimestampFromEvent(t *testing.T) {
+	recv := newTestReceiver(t)
+
+	ts := time.Date(2024, 1, 15, 8, 30, 0, 0, time.UTC)
+	fields := makeEventFields(ts, 75, "hello", "Source")
+	notif := makeEventNotification(1, fields)
+
+	logs := recv.decodeNotification(notif)
+	require.Equal(t, 1, logs.LogRecordCount())
+	lr := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	assert.Equal(t, ts.UnixNano(), lr.Timestamp().AsTime().UnixNano())
+}
+
+func TestDecodeNotification_MultipleEvents(t *testing.T) {
+	recv := newTestReceiver(t)
+
+	events := []*ua.EventFieldList{
+		{ClientHandle: 1, EventFields: makeEventFields(time.Now(), 75, "first", "S1")},
+		{ClientHandle: 1, EventFields: makeEventFields(time.Now(), 160, "second", "S2")},
+	}
+	notif := &opcua.PublishNotificationData{
+		Value: &ua.EventNotificationList{Events: events},
+	}
+
+	logs := recv.decodeNotification(notif)
+	assert.Equal(t, 2, logs.LogRecordCount())
+}
+
+// ── decodeEventFields ─────────────────────────────────────────────────────
+
+func TestDecodeEventFields_AllFields(t *testing.T) {
+	recv := newTestReceiver(t)
+	ts := time.Now().UTC()
+
+	fields := make([]*ua.Variant, fieldIdxCount)
+	fields[fieldIdxTime] = ua.MustVariant(ts)
+	fields[fieldIdxSeverity] = ua.MustVariant(uint16(210))
+	fields[fieldIdxMessage] = ua.MustVariant(&ua.LocalizedText{Text: "pump failure"})
+	fields[fieldIdxSourceName] = ua.MustVariant("HydraulicUnit")
+	fields[fieldIdxSourceNode] = ua.MustVariant(ua.NewNumericNodeID(2, 999))
+	fields[fieldIdxTraceContext] = ua.MustVariant(uint32(0))
+	fields[fieldIdxAdditionalData] = ua.MustVariant(uint32(0))
+
+	rec, err := recv.decodeEventFields(fields)
+	require.NoError(t, err)
+
+	assert.Equal(t, ts.Unix(), rec.Timestamp.Unix())
+	assert.Equal(t, uint16(210), rec.Severity)
+	assert.Equal(t, "pump failure", rec.Message)
+	assert.Equal(t, "HydraulicUnit", rec.SourceName)
+	assert.Equal(t, uint16(2), rec.SourceNamespace)
+	assert.Equal(t, "Numeric", rec.SourceIDType)
+	assert.Equal(t, "999", rec.SourceID)
+}
+
+func TestDecodeEventFields_MissingTimestampDefaultsToNow(t *testing.T) {
+	recv := newTestReceiver(t)
+	before := time.Now()
+
+	fields := makeEventFields(time.Time{}, 75, "msg", "src")
+	fields[fieldIdxTime] = ua.MustVariant(uint32(0)) // not a time.Time
+
+	rec, err := recv.decodeEventFields(fields)
+	require.NoError(t, err)
+	assert.True(t, rec.Timestamp.After(before) || rec.Timestamp.Equal(before))
+}
+
+func TestDecodeEventFields_StringSourceNode(t *testing.T) {
+	recv := newTestReceiver(t)
+	fields := makeEventFields(time.Now(), 75, "msg", "src")
+	fields[fieldIdxSourceNode] = ua.MustVariant(ua.NewStringNodeID(3, "MyTag"))
+
+	rec, err := recv.decodeEventFields(fields)
+	require.NoError(t, err)
+	assert.Equal(t, "String", rec.SourceIDType)
+	assert.Equal(t, "MyTag", rec.SourceID)
+	assert.Equal(t, uint16(3), rec.SourceNamespace)
+}
+
+// ── logEventSelectClauses ─────────────────────────────────────────────────
+
+func TestLogEventSelectClauses_Count(t *testing.T) {
+	clauses := logEventSelectClauses()
+	assert.Equal(t, fieldIdxCount, len(clauses))
+}
+
+func TestLogEventSelectClauses_TypeDefinitionID(t *testing.T) {
+	// TypeDefinitionID must be BaseEventType (ns=0;i=2041) — always registered
+	// in the server type hierarchy. BaseLogEventType may not be natively
+	// registered on all servers, so we use the base type for compatibility.
+	expectedID := ua.NewNumericNodeID(0, id.BaseEventType)
+	for _, clause := range logEventSelectClauses() {
+		assert.Equal(t, expectedID, clause.TypeDefinitionID)
+		assert.Equal(t, ua.AttributeIDValue, clause.AttributeID)
+	}
+}
+
+// ── resolveNodeID ─────────────────────────────────────────────────────────
+
+func TestResolveNodeID(t *testing.T) {
+	tests := []struct {
+		path    string
+		wantErr bool
+	}{
+		{"ns=2;i=1001", false},
+		{"ns=2;s=ServerLog", false},
+		{"Objects/ServerLog", false},
+		{"Objects/Server/ServerLog", false},
+		{"ServerLog", false},
+		{"Objects/Server/ServerDiagnostics/ServerLog", false},
+		{"unknown/arbitrary/path", true},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			transformer := NewTransformer("opc.tcp://test:4840", tt.serviceName, tt.serviceNamespace)
-			logs := transformer.TransformLogs([]testdata.OPCUALogRecord{
-				{Timestamp: time.Now(), Severity: 150, Message: "probe"},
-			})
-
-			resource := logs.ResourceLogs().At(0).Resource()
-
-			nameAttr, ok := resource.Attributes().Get("service.name")
-			require.True(t, ok)
-			assert.Equal(t, tt.wantName, nameAttr.Str())
-
-			nsAttr, nsOK := resource.Attributes().Get("service.namespace")
-			if tt.hasNamespace {
-				require.True(t, nsOK, "service.namespace should be present")
-				assert.Equal(t, tt.wantNamespace, nsAttr.Str())
+		t.Run(tt.path, func(t *testing.T) {
+			nodeID, err := resolveNodeID(tt.path)
+			if tt.wantErr {
+				assert.Error(t, err)
+				assert.Nil(t, nodeID)
 			} else {
-				assert.False(t, nsOK, "service.namespace should be absent when empty")
+				assert.NoError(t, err)
+				assert.NotNil(t, nodeID)
 			}
 		})
 	}
 }
 
-func TestTransformLogsEmpty(t *testing.T) {
-	transformer := NewTransformer("opc.tcp://test:4840", "opcua-server", "")
+// ── default config ────────────────────────────────────────────────────────
 
-	logs := transformer.TransformLogs([]testdata.OPCUALogRecord{})
-
-	assert.Equal(t, 0, logs.ResourceLogs().Len())
+func TestDefaultConfig_SubscriptionDefaults(t *testing.T) {
+	cfg := createDefaultConfig().(*Config)
+	assert.Equal(t, CollectionModePoll, cfg.CollectionMode)
+	assert.Equal(t, time.Second, cfg.Subscription.PublishingInterval)
+	assert.Equal(t, uint32(100), cfg.Subscription.QueueSize)
+	assert.Equal(t, 5*time.Second, cfg.Subscription.ReconnectDelay)
+	assert.Equal(t, uint32(0), cfg.Subscription.MaxReconnectAttempts)
 }
 
-func TestMapSeverity(t *testing.T) {
-	transformer := NewTransformer("opc.tcp://test:4840", "opcua-server", "")
+// ── end-to-end: decodeNotification → LogsSink ────────────────────────────
 
-	// OPC UA Part 26 §5.4 Table 5 → OTel SeverityNumber mapping
-	tests := []struct {
-		opcuaSeverity    uint16
-		expectedSeverity plog.SeverityNumber
+func TestSubscriptionReceiver_EndToEnd_Events(t *testing.T) {
+	sink := &consumertest.LogsSink{}
+	recv, err := newSubscriptionReceiver(subscriptionConfig(), receivertest.NewNopSettings(Type), sink)
+	require.NoError(t, err)
+	recv.handleToPath[1] = "ns=2;i=1000"
+
+	msgs := []struct {
+		severity uint16
+		msg      string
 	}{
-		// Debug: 1–50
-		{1, plog.SeverityNumberDebug},
-		{25, plog.SeverityNumberDebug},
-		{50, plog.SeverityNumberDebug},
-		// Information: 51–100
-		{51, plog.SeverityNumberInfo},
-		{75, plog.SeverityNumberInfo},
-		{100, plog.SeverityNumberInfo},
-		// Notice: 101–150
-		{101, plog.SeverityNumberInfo4},
-		{125, plog.SeverityNumberInfo4},
-		{150, plog.SeverityNumberInfo4},
-		// Warning: 151–200
-		{151, plog.SeverityNumberWarn},
-		{175, plog.SeverityNumberWarn},
-		{200, plog.SeverityNumberWarn},
-		// Error: 201–250
-		{201, plog.SeverityNumberError},
-		{225, plog.SeverityNumberError},
-		{250, plog.SeverityNumberError},
-		// Critical: 251–300
-		{251, plog.SeverityNumberError2},
-		{275, plog.SeverityNumberError2},
-		{300, plog.SeverityNumberError2},
-		// Alert: 301–400
-		{301, plog.SeverityNumberError3},
-		{350, plog.SeverityNumberError3},
-		{400, plog.SeverityNumberError3},
-		// Emergency: 401–1000
-		{401, plog.SeverityNumberFatal},
-		{700, plog.SeverityNumberFatal},
-		{1000, plog.SeverityNumberFatal},
+		{75, "first event"},
+		{160, "second event"},
+		{210, "third event"},
 	}
 
-	for _, tt := range tests {
-		t.Run(string(rune(tt.opcuaSeverity)), func(t *testing.T) {
-			result := transformer.mapSeverity(tt.opcuaSeverity)
-			assert.Equal(t, tt.expectedSeverity, result)
-		})
-	}
-}
-
-func TestSetTraceContext(t *testing.T) {
-	transformer := NewTransformer("opc.tcp://test:4840", "opcua-server", "")
-
-	opcuaRecord := testdata.OPCUALogRecord{
-		Timestamp: time.Now(),
-		Severity:  300,
-
-		Message:    "Test message with trace",
-		TraceID:    "0123456789abcdef0123456789abcdef",
-		SpanID:     "0123456789abcdef",
-		TraceFlags: 1,
+	for _, m := range msgs {
+		fields := makeEventFields(time.Now(), m.severity, m.msg, "TestSource")
+		notif := makeEventNotification(1, fields)
+		logs := recv.decodeNotification(notif)
+		require.Equal(t, 1, logs.LogRecordCount())
+		require.NoError(t, sink.ConsumeLogs(context.Background(), logs))
 	}
 
-	logs := transformer.TransformLogs([]testdata.OPCUALogRecord{opcuaRecord})
-
-	require.Equal(t, 1, logs.LogRecordCount())
-	logRecord := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
-
-	// Verify trace ID is set
-	traceID := logRecord.TraceID()
-	assert.NotEqual(t, [16]byte{}, traceID)
-
-	// Verify span ID is set
-	spanID := logRecord.SpanID()
-	assert.NotEqual(t, [8]byte{}, spanID)
-
-	// Verify sampled flag is set
-	flags := logRecord.Flags()
-	assert.True(t, flags.IsSampled())
-}
-
-func TestPutAttribute(t *testing.T) {
-	transformer := NewTransformer("opc.tcp://test:4840", "opcua-server", "")
-
-	opcuaRecord := testdata.OPCUALogRecord{
-		Timestamp: time.Now(),
-		Severity:  300,
-
-		Message: "Test message",
-		Attributes: map[string]interface{}{
-			"string_attr": "value",
-			"int_attr":    42,
-			"int64_attr":  int64(100),
-			"float_attr":  3.14,
-			"bool_attr":   true,
-		},
-	}
-
-	logs := transformer.TransformLogs([]testdata.OPCUALogRecord{opcuaRecord})
-
-	logRecord := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
-	attrs := logRecord.Attributes()
-
-	// Verify string attribute
-	val, ok := attrs.Get("string_attr")
-	require.True(t, ok)
-	assert.Equal(t, "value", val.Str())
-
-	// Verify int attribute
-	val, ok = attrs.Get("int_attr")
-	require.True(t, ok)
-	assert.Equal(t, int64(42), val.Int())
-
-	// Verify int64 attribute
-	val, ok = attrs.Get("int64_attr")
-	require.True(t, ok)
-	assert.Equal(t, int64(100), val.Int())
-
-	// Verify float attribute
-	val, ok = attrs.Get("float_attr")
-	require.True(t, ok)
-	assert.Equal(t, 3.14, val.Double())
-
-	// Verify bool attribute
-	val, ok = attrs.Get("bool_attr")
-	require.True(t, ok)
-	assert.Equal(t, true, val.Bool())
-}
-
-func TestGenerateSampleLogRecord(t *testing.T) {
-	record := testdata.GenerateSampleLogRecord(1)
-
-	assert.NotEmpty(t, record.Message)
-	assert.NotEmpty(t, record.SourceName)
-	assert.Greater(t, record.Severity, uint16(0))
-	assert.NotEmpty(t, record.TraceID)
-	assert.NotEmpty(t, record.SpanID)
-	assert.NotNil(t, record.Attributes)
-}
-
-func TestGenerateLogRecordWithDetails(t *testing.T) {
-	timestamp := time.Now()
-	record := testdata.GenerateLogRecordWithDetails(timestamp, 500, "Custom message", "CustomSource")
-
-	assert.Equal(t, timestamp, record.Timestamp)
-	assert.Equal(t, uint16(500), record.Severity)
-	assert.Equal(t, "Custom message", record.Message)
-	assert.Equal(t, "CustomSource", record.SourceName)
+	assert.Equal(t, 3, sink.LogRecordCount())
 }
