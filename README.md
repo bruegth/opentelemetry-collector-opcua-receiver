@@ -296,9 +296,9 @@ For more detail, see [receiver/opcua/README.md](receiver/opcua/README.md#trouble
 - [x] OPC UA Part 26 GetRecords method call with ExtensionObject decoding
 - [x] ContinuationPoint pagination for large log sets
 - [x] E2E integration testing with C# OPC UA test server
-- [ ] Subscription-based log collection (in addition to polling)
+- [x] Subscription-based log collection (in addition to polling)
 - [ ] Enhanced filtering capabilities
-- [ ] Performance metrics and monitoring
+- [ ] Performance metrics
 - [ ] Beta stability
 
 ## License
