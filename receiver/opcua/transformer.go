@@ -218,11 +218,7 @@ func (t *Transformer) setTraceContext(logRecord plog.LogRecord, traceID, spanID 
 	}
 
 	// Set trace flags
-	logFlags := plog.DefaultLogRecordFlags
-	if flags&0x01 != 0 {
-		logFlags = logFlags.WithIsSampled(true)
-	}
-	logRecord.SetFlags(logFlags)
+	logRecord.SetFlags(plog.LogRecordFlags(flags))
 }
 
 // putAttribute adds an attribute with type detection

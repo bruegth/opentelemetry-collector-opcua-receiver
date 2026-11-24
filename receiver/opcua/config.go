@@ -176,9 +176,9 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
-	validSeverities := []string{"Trace", "Debug", "Info", "Warn", "Error", "Fatal", ""}
+	validSeverities := []string{"Trace", "Debug", "Info", "Warn", "Warning", "Error", "Fatal", "Emergency", ""}
 	if !contains(validSeverities, cfg.Filter.MinSeverity) {
-		return fmt.Errorf("invalid min_severity: %s, must be one of: Trace, Debug, Info, Warn, Error, Fatal", cfg.Filter.MinSeverity)
+		return fmt.Errorf("invalid min_severity: %s, must be one of: Trace, Debug, Info, Warn, Warning, Error, Fatal, Emergency", cfg.Filter.MinSeverity)
 	}
 
 	if cfg.Filter.MaxLogRecords < 0 {

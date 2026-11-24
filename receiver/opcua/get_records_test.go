@@ -229,16 +229,16 @@ func TestGetMinSeverityValue(t *testing.T) {
 		severity string
 		expected uint16
 	}{
-		{"Trace", 51},
+		{"Trace", 1},
 		{"Debug", 1},
-		{"Info", 101},
-		{"Warn", 201},
-		{"Warning", 201},
-		{"Error", 301},
+		{"Info", 51},
+		{"Warn", 151},
+		{"Warning", 151},
+		{"Error", 201},
 		{"Fatal", 401},
 		{"Emergency", 401},
-		{"Unknown", 101}, // default
-		{"", 101},        // default
+		{"Unknown", 51}, // default
+		{"", 51},        // default
 	}
 
 	for _, tt := range tests {
@@ -289,7 +289,7 @@ func TestLogRecordExtObjToRecord_WithTraceContext(t *testing.T) {
 
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", record.TraceID)
 	assert.Equal(t, "0102030405060708", record.SpanID)
-	assert.Equal(t, byte(0x01), record.TraceFlags)
+	assert.Equal(t, byte(0x02), record.TraceFlags)
 }
 
 func TestLogRecordExtObjToRecord_NoTraceContext(t *testing.T) {
@@ -359,7 +359,7 @@ func TestParseLogRecordFromExtensionObject_WithTraceContext(t *testing.T) {
 
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", record.TraceID)
 	assert.Equal(t, "deadbeefcafe0000", record.SpanID)
-	assert.Equal(t, byte(0x01), record.TraceFlags)
+	assert.Equal(t, byte(0x02), record.TraceFlags)
 
 	assert.Equal(t, "external-api", record.Attributes["service"])
 }
@@ -394,5 +394,5 @@ func TestParseLogRecordFromExtensionObject_BinaryFallback(t *testing.T) {
 	assert.Equal(t, "FallbackSource", record.SourceName)
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", record.TraceID)
 	assert.Equal(t, "0102030405060708", record.SpanID)
-	assert.Equal(t, byte(0x01), record.TraceFlags)
+	assert.Equal(t, byte(0x02), record.TraceFlags)
 }

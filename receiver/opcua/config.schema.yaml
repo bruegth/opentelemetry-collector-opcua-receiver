@@ -46,14 +46,14 @@ properties:
         description: Password for username_password authentication
       cert_file:
         type: string
-        description: Path to certificate file for certificate authentication
+        description: Not used; configure tls.cert_file instead
       key_file:
         type: string
-        description: Path to private key file for certificate authentication
+        description: Not used; configure tls.key_file instead
 
   log_object_paths:
     type: array
-    description: Paths to LogObject nodes (can be NodeID format or browse paths)
+    description: LogObject NodeIDs or known ServerLog aliases; arbitrary browse paths are not resolved
     items:
       type: string
     default:
@@ -92,10 +92,38 @@ properties:
         default: Info
       max_log_records:
         type: integer
-        description: Maximum number of log records to collect per scrape
-        minimum: 1
-        maximum: 100000
+        description: Currently not enforced
+        minimum: 0
         default: 10000
+
+  collection_mode:
+    type: string
+    description: Poll LogObjects or subscribe to events
+    enum: [poll, subscription]
+    default: poll
+
+  subscription:
+    type: object
+    description: Settings for subscription mode
+    properties:
+      publishing_interval:
+        type: string
+        description: Requested event publishing interval
+        default: 1s
+      queue_size:
+        type: integer
+        description: Monitored-item queue size
+        minimum: 0
+        default: 100
+      reconnect_delay:
+        type: string
+        description: Delay between reconnect attempts
+        default: 5s
+      max_reconnect_attempts:
+        type: integer
+        description: Maximum reconnect attempts; zero means unlimited
+        minimum: 0
+        default: 0
 
   connection_timeout:
     type: string
@@ -115,11 +143,11 @@ properties:
     properties:
       insecure_skip_verify:
         type: boolean
-        description: Skip TLS certificate verification (not recommended for production)
+        description: Currently not applied to the OPC UA client
         default: false
       ca_file:
         type: string
-        description: Path to CA certificate file
+        description: Currently not applied to the OPC UA client
       cert_file:
         type: string
         description: Path to client certificate file

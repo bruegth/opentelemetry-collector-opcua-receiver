@@ -27,14 +27,9 @@ func (c *opcuaClient) callGetRecordsMethod(
 	// Find the GetRecords method NodeID by browsing the LogObject's children.
 	getRecordsMethodID, err := c.findGetRecordsMethod(ctx, logObjectID)
 	if err != nil {
-		c.logger.Warn("Could not discover GetRecords method via browsing, using standard ID ns=0;i=11550",
-			zap.String("log_object_id", logObjectID.String()),
-			zap.Error(err))
-		getRecordsMethodID = ua.NewNumericNodeID(0, 11550)
-	} else {
-		c.logger.Debug("Using discovered GetRecords method",
-			zap.String("method_id", getRecordsMethodID.String()))
+		return nil, nil, fmt.Errorf("discover GetRecords method: %w", err)
 	}
+	c.logger.Debug("Using discovered GetRecords method", zap.String("method_id", getRecordsMethodID.String()))
 
 	// Build LogRecordMask - request all optional fields
 	// Bit 0: EventType, Bit 1: SourceNode, Bit 2: SourceName, Bit 3: TraceContext, Bit 4: AdditionalData
@@ -248,7 +243,7 @@ func logRecordExtObjToRecord(lr *LogRecordExtObj) testdata.OPCUALogRecord {
 	if lr.SpanID != 0 {
 		record.TraceID = lr.TraceIDHex()
 		record.SpanID = lr.SpanIDHex()
-		record.TraceFlags = 0x01 // sampled
+		record.TraceFlags = 0x02 // random trace ID; sampling is not specified by Part 26
 	}
 
 	// Promote AdditionalData entries to log attributes
@@ -352,19 +347,17 @@ func nodeIDComponents(nodeID *ua.NodeID) (namespace uint16, idType string, id st
 // getMinSeverityValue converts config severity string to numeric value
 func (c *opcuaClient) getMinSeverityValue() uint16 {
 	switch c.config.Filter.MinSeverity {
-	case "Trace":
-		return 51
-	case "Debug":
+	case "Trace", "Debug":
 		return 1
 	case "Info":
-		return 101
+		return 51
 	case "Warn", "Warning":
-		return 201
+		return 151
 	case "Error":
-		return 301
+		return 201
 	case "Fatal", "Emergency":
 		return 401
 	default:
-		return 101 // Default to Info
+		return 51 // Default to Info
 	}
 }

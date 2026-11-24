@@ -197,6 +197,16 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestConfigValidateSeverityAliases(t *testing.T) {
+	for _, severity := range []string{"Warning", "Emergency"} {
+		t.Run(severity, func(t *testing.T) {
+			cfg := createDefaultConfig().(*Config)
+			cfg.Filter.MinSeverity = severity
+			require.NoError(t, cfg.Validate())
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	factory := NewFactory()
 	cfg := factory.CreateDefaultConfig()

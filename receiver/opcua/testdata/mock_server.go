@@ -111,8 +111,8 @@ func (s *MockServer) defaultCallHandler(ctx context.Context, req *ua.CallMethodR
 	s.logger.Debug("Mock server handling Call request",
 		zap.String("method_id", req.MethodID.String()))
 
-	// Check if this is a GetRecords call (method ID 11550)
-	if req.MethodID.IntID() != 11550 {
+	// Check if this is the standard ServerLog GetRecords method.
+	if req.MethodID.IntID() != 19373 {
 		return &ua.CallMethodResult{
 			StatusCode: ua.StatusBadMethodInvalid,
 		}, nil
