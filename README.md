@@ -24,6 +24,7 @@ This project provides a custom receiver for the OpenTelemetry Collector that ena
 
 - Go 1.26.0 or later
 - OpenTelemetry Collector Builder (OCB) v0.166.0
+- .NET 10 SDK (for building the test server)
 - OPC UA server (optional for development/testing)
 
 ### Installation
@@ -154,6 +155,7 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 ├── builder-config.yaml      # Collector builder configuration
 ├── config.yaml              # Runtime configuration
 ├── go.work                  # Go workspace file
+├── opentelemetry-collector-opcua-receiver.slnx # Test server solution
 └── README.md                # This file
 ```
 
@@ -186,6 +188,12 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
    - Place in project root
 
 ### Building
+
+#### Build the OPC UA Test Server
+
+```bash
+dotnet build opentelemetry-collector-opcua-receiver.slnx
+```
 
 #### Build the Receiver Module Only
 
