@@ -48,6 +48,18 @@ jobs:
           GOWORK=off GOARCH=arm64 builder --config builder-config.yaml
           mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-arm64
 
+          # Build for Linux ARMv7
+          GOWORK=off GOOS=linux GOARCH=arm GOARM=7 builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-armv7
+
+          # Build for Linux PPC64LE
+          GOWORK=off GOOS=linux GOARCH=ppc64le builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-ppc64le
+
+          # Build for Linux S390X
+          GOWORK=off GOOS=linux GOARCH=s390x builder --config builder-config.yaml
+          mv otelcol-dev/otelcol-dev otelcol-dev/otelcol-opcua-linux-s390x
+
           # Build for Windows AMD64
           GOWORK=off GOOS=windows builder --config builder-config.yaml
           # Cross-compiling on Linux may not add .exe; handle both cases

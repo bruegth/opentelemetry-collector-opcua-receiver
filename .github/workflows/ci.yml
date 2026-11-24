@@ -121,6 +121,23 @@ jobs:
           name: otelcol-opcua-${{ matrix.os }}
           path: otelcol-dev/otelcol-dev*
 
+  multiarch-container:
+    name: Build Multi-Architecture Container
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build multi-platform OCI archive
+        run: >-
+          docker buildx build
+          --platform linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x
+          --output type=oci,dest=${{ runner.temp }}/otelcol-opcua.oci.tar
+          .
+
   integration-test:
     name: Integration Tests
     runs-on: ubuntu-latest
