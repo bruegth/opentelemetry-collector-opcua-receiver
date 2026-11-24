@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - planned for 0.3.0
+## [Unreleased]
+
+## [0.3.0] - 2026-11-24
+
 ### Added
 - Decode standard OPC UA Part 26 `LogRecordsDataType` responses, including optional fields and continuation pages.
 - Include the optional OpenTelemetry filter processor for filtering decoded logs.
@@ -23,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct the default ServerLog NodeID, severity thresholds and trace flags.
 - Keep GetRecords parameters unchanged across continuation calls and reject mismatched security policy or mode during endpoint selection.
 
-## [0.2.0]
+## [0.2.0] - 2026-06-03
 
 ### Added
 - Subscription-based log collection via OPC UA `BaseLogEventType` events
@@ -71,7 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Certificate-based authentication
 - Security policy enforcement
 
-[Unreleased]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/bruegth/opentelemetry-collector-opcua-receiver/releases/tag/v0.0.1
