@@ -16,6 +16,8 @@ exporters:
 processors:
   - gomod:
       go.opentelemetry.io/collector/processor/batchprocessor v0.166.0
+  - gomod:
+      github.com/open-telemetry/opentelemetry-collector-contrib/processor/filterprocessor v0.165.1
 
 receivers:
   - gomod:

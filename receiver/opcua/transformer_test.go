@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/testdata"
 )
@@ -214,6 +216,70 @@ func TestDecodeNotification_MultipleEvents(t *testing.T) {
 
 	logs := recv.decodeNotification(notif)
 	assert.Equal(t, 2, logs.LogRecordCount())
+}
+
+func TestDecodeNotification_MinSeverity(t *testing.T) {
+	tests := []struct {
+		name     string
+		severity string
+		below    uint16
+		at       uint16
+	}{
+		{"trace", "Trace", 0, 1},
+		{"debug", "Debug", 0, 1},
+		{"default", "", 50, 51},
+		{"info", "Info", 50, 51},
+		{"warn", "Warn", 150, 151},
+		{"warning", "Warning", 150, 151},
+		{"error", "Error", 200, 201},
+		{"fatal", "Fatal", 400, 401},
+		{"emergency", "Emergency", 400, 401},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recv := newTestReceiver(t)
+			recv.config.Filter.MinSeverity = tt.severity
+			notif := &opcua.PublishNotificationData{Value: &ua.EventNotificationList{
+				Events: []*ua.EventFieldList{
+					{ClientHandle: 1, EventFields: makeEventFields(time.Now(), tt.below, "below", "source")},
+					{ClientHandle: 1, EventFields: makeEventFields(time.Now(), tt.at, "at", "source")},
+					{ClientHandle: 1, EventFields: makeEventFields(time.Now(), 1000, "above", "source")},
+				},
+			}}
+			logs := recv.decodeNotification(notif)
+			require.Equal(t, 2, logs.LogRecordCount())
+			assert.Equal(t, "at", logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Body().Str())
+			assert.Equal(t, "above", logs.ResourceLogs().At(1).ScopeLogs().At(0).LogRecords().At(0).Body().Str())
+		})
+	}
+}
+
+func TestDecodeNotification_InvalidSeverity(t *testing.T) {
+	tests := []struct {
+		name     string
+		severity *ua.Variant
+	}{
+		{"missing", nil},
+		{"wrong type", ua.MustVariant("151")},
+		{"negative", ua.MustVariant(int16(-1))},
+		{"zero", ua.MustVariant(uint16(0))},
+		{"above range", ua.MustVariant(uint16(1001))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recv := newTestReceiver(t)
+			recv.config.Filter.MinSeverity = "Debug"
+			core, observed := observer.New(zap.WarnLevel)
+			recv.settings.Logger = zap.New(core)
+			fields := makeEventFields(time.Now(), 151, "invalid", "source")
+			fields[fieldIdxSeverity] = tt.severity
+
+			logs := recv.decodeNotification(makeEventNotification(1, fields))
+			assert.Zero(t, logs.LogRecordCount())
+			require.Equal(t, 1, observed.Len())
+			assert.Contains(t, observed.All()[0].ContextMap()["error"], "invalid event severity")
+		})
+	}
 }
 
 // ── decodeEventFields ─────────────────────────────────────────────────────

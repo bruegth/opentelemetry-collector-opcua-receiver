@@ -122,6 +122,8 @@ service:
 - **filter** (object): Log filtering options
   - **min_severity** (string): Minimum severity to collect. Default: `Info`
     - Options: `Trace`, `Debug`, `Info`, `Warn`, `Warning`, `Error`, `Fatal`, `Emergency`
+    - Inclusive thresholds: `Trace`/`Debug` = 1, `Info` = 51, `Warn`/`Warning` = 151, `Error` = 201, `Fatal`/`Emergency` = 401.
+    - Polling passes the threshold to `GetRecords`; subscription mode filters received events locally. Missing or invalid event severities are discarded with a warning.
   - **max_log_records** (int): Currently not enforced. Default: `10000`
 
 - **connection_timeout** (duration): Timeout for establishing connection. Default: `30s`
@@ -136,6 +138,12 @@ service:
 - **resource** (object): Resource attributes emitted with every log record
   - **service_name** (string): Value for `service.name`. Default: `opcua-server`
   - **service_namespace** (string): Value for `service.namespace` (omitted when empty)
+
+The custom collector distribution also includes an optional OTel filter
+processor for filtering decoded log bodies and attributes. It runs after the
+receiver and therefore does not reduce OPC UA traffic. See the
+[filtering example](../../README.md#log-filtering) and
+[subscription limitations](../../PART26_REVIEW.md).
 
 ## Data Mapping
 

@@ -375,8 +375,11 @@ func (r *subscriptionReceiver) decodeNotification(notif *opcua.PublishNotificati
 		path := r.handleToPath[event.ClientHandle]
 		rec, err := r.decodeEventFields(event.EventFields)
 		if err != nil {
-			r.settings.Logger.Debug("Failed to decode event fields",
+			r.settings.Logger.Warn("Failed to decode event fields",
 				zap.String("path", path), zap.Error(err))
+			continue
+		}
+		if rec.Severity < r.config.Filter.minimumSeverity() {
 			continue
 		}
 
@@ -412,9 +415,11 @@ func (r *subscriptionReceiver) decodeEventFields(fields []*ua.Variant) (testdata
 	if t, ok := variantTime(fields[fieldIdxTime]); ok {
 		rec.Timestamp = t
 	}
-	if s, ok := variantUInt16(fields[fieldIdxSeverity]); ok {
-		rec.Severity = s
+	severity, ok := variantUInt16(fields[fieldIdxSeverity])
+	if !ok || severity < 1 || severity > 1000 {
+		return rec, fmt.Errorf("invalid event severity: %v", fields[fieldIdxSeverity])
 	}
+	rec.Severity = severity
 	if m, ok := variantLocalizedText(fields[fieldIdxMessage]); ok {
 		rec.Message = m
 	}
@@ -479,6 +484,9 @@ func variantUInt16(v *ua.Variant) (uint16, bool) {
 	case uint16:
 		return val, true
 	case int16:
+		if val < 0 {
+			return 0, false
+		}
 		return uint16(val), true //nolint:gosec
 	}
 	return 0, false

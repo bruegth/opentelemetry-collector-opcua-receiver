@@ -229,6 +229,46 @@ jobs:
               bash /testserver/validate.sh /output/logs.json /testserver/expected/records.json
             "
 
+      - name: Start filtering test collector
+        run: |
+          docker run -d --name otelcol-filter \
+            --network opcua-test-net \
+            --user 0 \
+            -e OPCUA_TEST_ENDPOINT=opc.tcp://testserver:4840/TestServer \
+            -e OPCUA_FILTER_OUTPUT_DIR=/output \
+            -v $(pwd)/testserver/filter-collector-config.yaml:/otelcol/collector-config.yaml:ro \
+            -v otel-output:/output \
+            otelcol-opcua \
+            --config /otelcol/collector-config.yaml
+
+      - name: Verify filtering with the C# test server
+        run: |
+          ready=false
+          for i in $(seq 1 30); do
+            if docker logs otelcol-filter 2>&1 | grep -q 'Monitoring log object event notifiers'; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            docker logs otelcol-filter
+            exit 1
+          fi
+          start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # The server emits its ten fixture events once every 50 seconds.
+          sleep 55
+          docker logs --since "$start" testserver > "$RUNNER_TEMP/filter-server.log" 2>&1
+          docker stop otelcol-filter
+          docker run --rm -v otel-output:/output -v "$RUNNER_TEMP:/host" \
+            alpine sh -c 'cp /output/filter-*.json /host/'
+          python3 testserver/validate-filter.py "$RUNNER_TEMP" \
+            testserver/expected/records.json "$RUNNER_TEMP/filter-server.log"
+
+      - name: Show filtering collector logs
+        if: always()
+        run: docker logs otelcol-filter 2>/dev/null || true
+
       - name: Upload output on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -254,6 +294,6 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rm -f testserver otelcol 2>/dev/null || true
+          docker rm -f testserver otelcol otelcol-filter 2>/dev/null || true
           docker network rm opcua-test-net 2>/dev/null || true
           docker volume rm otel-output 2>/dev/null || true

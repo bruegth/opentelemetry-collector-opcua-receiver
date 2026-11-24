@@ -317,7 +317,7 @@ func (m *mockClientAdapter) GetRecords(
 	continuationPoint := []byte(nil)
 
 	// Get minimum severity from config
-	minSeverity := (&opcuaClient{config: m.config}).getMinSeverityValue()
+	minSeverity := m.config.Filter.minimumSeverity()
 
 	// Keep fetching records using continuation points until no more records
 	for {

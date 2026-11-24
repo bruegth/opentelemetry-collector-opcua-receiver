@@ -163,7 +163,7 @@ func (c *opcuaClient) GetRecords(ctx context.Context, startTime, endTime time.Ti
 	}
 
 	// Convert minimum severity from config
-	minSeverity := c.getMinSeverityValue()
+	minSeverity := c.config.Filter.minimumSeverity()
 
 	for _, logObjectID := range logObjectIDs {
 		// Call GetRecords with pagination support
