@@ -4,7 +4,7 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver?filename=%2Freceiver%2Fopcua%2Fgo.mod)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Stability: Beta](https://img.shields.io/badge/stability-beta-yellow.svg)](CONTRIBUTING.md)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
+[![CI](https://github.com/bruegth/opentelemetry-collector-opcua-receiver/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bruegth/opentelemetry-collector-opcua-receiver/actions/workflows/ci.yml)
 
 An OpenTelemetry Collector receiver for collecting logs from OPC UA servers implementing the LogObject specification (OPC UA Part 26).
 
@@ -12,7 +12,7 @@ An OpenTelemetry Collector receiver for collecting logs from OPC UA servers impl
 
 This project provides a custom receiver for the OpenTelemetry Collector that enables collection of log records from OPC UA industrial automation servers. It bridges the gap between industrial OPC UA systems and modern observability platforms.
 
-**Features**: multiple authentication methods (anonymous, username/password, X.509 certificates), configurable security policies, severity filtering, trace context propagation, ContinuationPoint pagination.
+**Features**: polling and subscription collection, configurable security policies, severity filtering, trace context propagation, and ContinuationPoint pagination.
 
 ### Status
 
@@ -36,16 +36,26 @@ This project provides a custom receiver for the OpenTelemetry Collector that ena
 git clone https://github.com/bruegth/opentelemetry-collector-opcua-receiver.git
 cd opentelemetry-collector-opcua-receiver
 
-# Download OpenTelemetry Collector Builder
-# Windows: Download ocb.exe from https://github.com/open-telemetry/opentelemetry-collector/releases
-# Linux/Mac: Download appropriate binary
+# Install OpenTelemetry Collector Builder
+go install go.opentelemetry.io/collector/cmd/builder@v0.166.0
+```
 
+Ensure the Go binary directory (`go env GOBIN`, or `bin` under `go env GOPATH`
+when `GOBIN` is empty) is on your `PATH`. Build and run from the repository root:
+
+```bash
+# Linux/macOS
 # Build the collector
-./ocb.exe --config builder-config.yaml
+GOWORK=off builder --config builder-config.yaml
 
 # Run the collector
-cd otelcol-dev
-./otelcol-dev --config ../config.yaml
+./otelcol-dev/otelcol-dev --config config.yaml
+```
+
+```powershell
+# Windows PowerShell
+cmd /c "set GOWORK=off&& builder --config builder-config.yaml"
+.\otelcol-dev\otelcol-dev.exe --config .\config.yaml
 ```
 
 #### Option 2: Use as Go Module
@@ -53,7 +63,7 @@ cd otelcol-dev
 Add to your collector builder configuration or import directly:
 
 ```bash
-# Install the module
+# Run from your own Go module, not this repository's root
 go get github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua@latest
 ```
 
@@ -87,16 +97,18 @@ service:
 
 ### Advanced Example
 
+Username/password and certificate user authentication, as well as OPC UA
+certificate trust settings, have known limitations. See the
+[Part 26 review](PART26_REVIEW.md) before relying on them.
+
 ```yaml
 receivers:
   opcua:
     endpoint: opc.tcp://opcua.server.local:4840
-    security_policy: Basic256Sha256
-    security_mode: SignAndEncrypt
+    security_policy: None
+    security_mode: None
     auth:
-      type: username_password
-      username: opcua_user
-      password: ${env:OPCUA_PASSWORD}
+      type: anonymous
     log_object_paths:
       - Objects/ServerLog
       - "ns=2;s=DeviceLog"
@@ -104,7 +116,6 @@ receivers:
     max_records_per_call: 1000
     filter:
       min_severity: Info
-      max_log_records: 10000
     connection_timeout: 30s
     request_timeout: 10s
     resource:
@@ -112,15 +123,18 @@ receivers:
       # service_namespace: production
 
 exporters:
-  otlphttp:
-    endpoint: http://observability-backend:4318
+  debug:
+    verbosity: detailed
+
+processors:
+  batch:
 
 service:
   pipelines:
     logs:
       receivers: [opcua]
       processors: [batch]
-      exporters: [otlphttp]
+      exporters: [debug]
 ```
 
 For complete configuration options, see [receiver/opcua/README.md](receiver/opcua/README.md).
@@ -129,7 +143,7 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 
 ### Project Structure
 
-```
+```text
 .
 ├── receiver/opcua/          # OPC UA receiver implementation
 │   ├── config.go            # Configuration structure
@@ -174,19 +188,16 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
    cd opentelemetry-collector-opcua-receiver
    ```
 
-3. **Initialize the workspace**
+3. **Download dependencies**
    ```bash
    # The go.work file is already configured
    # Install dependencies
    cd receiver/opcua
-   go mod tidy
+   go mod download
    cd ../..
    ```
 
-4. **Download OpenTelemetry Collector Builder**
-   - Windows: Download `ocb.exe` from [releases](https://github.com/open-telemetry/opentelemetry-collector/releases)
-   - Linux/Mac: Download appropriate binary
-   - Place in project root
+4. **Install OpenTelemetry Collector Builder** as described in [Quick Start](#quick-start).
 
 ### Building
 
@@ -209,14 +220,7 @@ go build
 
 #### Build the Complete Collector
 
-```bash
-# Build using OCB
-./ocb.exe --config builder-config.yaml
-
-# Or use PowerShell script (if available)
-.\build.ps1
-```
-
+Follow the platform-specific OCB commands in [Quick Start](#quick-start).
 The compiled collector will be in `otelcol-dev/otelcol-dev` (or `.exe` on Windows).
 
 ### Testing
@@ -247,7 +251,7 @@ golangci-lint run
 
 This project uses GitHub Actions for continuous integration and delivery:
 
-- **Build & Test**: Runs on every push and pull request
+- **Build & Test**: Runs on pushes to `main` and `initial`, and on pull requests targeting `main`
 - **Linting**: Code quality checks
 - **Coverage**: Test coverage reporting
 - **E2E Test**: Runs C# OPC UA test server + OTel collector in Docker, validates file export output
@@ -266,10 +270,15 @@ docker build -t otelcol-opcua:latest .
 ### Run in Docker
 
 ```bash
-docker run -p 4317:4317 -p 4318:4318 \
-  -v $(pwd)/config.yaml:/etc/otelcol/config.yaml \
+docker run -p 4317:4317 \
+  -v "$(pwd)/config.yaml:/otelcol/collector-config.yaml:ro" \
   otelcol-opcua:latest
 ```
+
+Adjust `config.yaml` before running: `localhost` inside the container refers to
+the container itself, and the example Jaeger exporter needs a reachable backend.
+The mounted configuration must be readable by the container's non-root user.
+The sample configuration enables OTLP/gRPC on port 4317, not OTLP/HTTP on 4318.
 
 ### Multi-Architecture Build
 
@@ -299,7 +308,7 @@ Contributions are welcome! Fork the repository, create a feature branch, write t
 
 ## Troubleshooting
 
-- **`ocb.exe` not found**: Download OCB from [releases](https://github.com/open-telemetry/opentelemetry-collector/releases) and place in project root.
+- **`builder` not found**: Install OCB as shown in [Quick Start](#quick-start) and ensure the Go binary directory is on `PATH`.
 - **Module errors**: Run `cd receiver/opcua && go mod tidy`.
 - **Connection refused**: Verify endpoint URL, network connectivity, and firewall rules.
 - **Authentication failures**: Check credentials, certificate paths, and server auth requirements.

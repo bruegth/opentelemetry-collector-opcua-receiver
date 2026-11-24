@@ -11,7 +11,6 @@
 - Run Go commands from `receiver/opcua`: `go test ./...`, `go vet ./...`, and `go build ./...`. Use focused tests when appropriate; CI also runs tests with the race detector and coverage.
 - `builder-config.yaml` defines the generated collector in `otelcol-dev`; the local receiver uses a path reference. CI builds it with `GOWORK=off` using the OCB version pinned in the workflows.
 - `Dockerfile` builds the generated collector in a workspace; `testserver/ci-collector-config.yaml` and `testserver/validate.sh` define the end-to-end checks. The local E2E script uses fixed Docker resource names and removes them, so check for shared resources before running it.
-- The receiver Makefile includes a missing `Makefile.Common`; use the Go commands above rather than assuming `make` works.
 
 ## Changes
 
