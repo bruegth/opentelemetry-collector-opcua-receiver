@@ -243,10 +243,7 @@ func TestGetMinSeverityValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.severity, func(t *testing.T) {
-			c := &opcuaClient{
-				config: &Config{Filter: FilterConfig{MinSeverity: tt.severity}},
-			}
-			result := c.getMinSeverityValue()
+			result := (FilterConfig{MinSeverity: tt.severity}).minimumSeverity()
 			assert.Equal(t, tt.expected, result)
 		})
 	}

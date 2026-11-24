@@ -1,0 +1,48 @@
+receivers:
+  opcua/poll:
+    endpoint: ${env:OPCUA_TEST_ENDPOINT}
+    security_policy: None
+    security_mode: None
+    auth:
+      type: anonymous
+    log_object_paths: ["ns=2;i=1000"]
+    collection_interval: 5s
+    filter:
+      min_severity: Warning
+  opcua/subscription:
+    endpoint: ${env:OPCUA_TEST_ENDPOINT}
+    security_policy: None
+    security_mode: None
+    auth:
+      type: anonymous
+    log_object_paths: ["ns=2;i=1000"]
+    collection_mode: subscription
+    filter:
+      min_severity: Warning
+
+processors:
+  filter/network:
+    error_mode: propagate
+    log_conditions:
+      - 'log.attributes["opcua.source.name"] != "NetworkModule"'
+
+exporters:
+  file/poll:
+    path: ${env:OPCUA_FILTER_OUTPUT_DIR}/filter-poll.json
+  file/subscription:
+    path: ${env:OPCUA_FILTER_OUTPUT_DIR}/filter-subscription.json
+  file/processor:
+    path: ${env:OPCUA_FILTER_OUTPUT_DIR}/filter-processor.json
+
+service:
+  pipelines:
+    logs/poll:
+      receivers: [opcua/poll]
+      exporters: [file/poll]
+    logs/subscription:
+      receivers: [opcua/subscription]
+      exporters: [file/subscription]
+    logs/processor:
+      receivers: [opcua/poll]
+      processors: [filter/network]
+      exporters: [file/processor]

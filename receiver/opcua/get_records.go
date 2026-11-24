@@ -343,21 +343,3 @@ func nodeIDComponents(nodeID *ua.NodeID) (namespace uint16, idType string, id st
 	}
 	return namespace, idType, id
 }
-
-// getMinSeverityValue converts config severity string to numeric value
-func (c *opcuaClient) getMinSeverityValue() uint16 {
-	switch c.config.Filter.MinSeverity {
-	case "Trace", "Debug":
-		return 1
-	case "Info":
-		return 51
-	case "Warn", "Warning":
-		return 151
-	case "Error":
-		return 201
-	case "Fatal", "Emergency":
-		return 401
-	default:
-		return 51 // Default to Info
-	}
-}

@@ -95,6 +95,23 @@ type FilterConfig struct {
 	MaxLogRecords int `mapstructure:"max_log_records"`
 }
 
+func (filter FilterConfig) minimumSeverity() uint16 {
+	switch filter.MinSeverity {
+	case "Trace", "Debug":
+		return 1
+	case "Info":
+		return 51
+	case "Warn", "Warning":
+		return 151
+	case "Error":
+		return 201
+	case "Fatal", "Emergency":
+		return 401
+	default:
+		return 51
+	}
+}
+
 // ResourceConfig defines the OTel resource attributes that are emitted with every log record.
 type ResourceConfig struct {
 	// ServiceName sets the resource attribute service.name.

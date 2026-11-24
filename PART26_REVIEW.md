@@ -40,9 +40,10 @@ criteria have not been independently established.
    use concrete event types with the mandatory event fields in the test server.
 3. **Subscription payload and recovery need further work.**
    The subscription decoder expects a legacy LogRecord object for TraceContext
-   instead of the standard TraceContextDataType; additional event fields and
-   severity filtering are incomplete. Failed monitored items and downstream
-   delivery/reconnection need explicit failure and replay semantics. Test
+   instead of the standard TraceContextDataType; additional event fields are
+   incomplete. Severity filtering is local to the receiver after event delivery.
+   Failed monitored items and downstream delivery/reconnection need explicit
+   failure and replay semantics. Test
    independently against conforming servers, not just the included server.
 4. **Configuration/security support is incomplete.**
    `filter.max_log_records` is validated but not enforced. `tls.ca_file` and
