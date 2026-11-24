@@ -22,8 +22,8 @@ This project provides a custom receiver for the OpenTelemetry Collector that ena
 
 ### Prerequisites
 
-- Go 1.25.1 or later
-- OpenTelemetry Collector Builder (OCB) v0.145.0 or later
+- Go 1.26.0 or later
+- OpenTelemetry Collector Builder (OCB) v0.166.0
 - OPC UA server (optional for development/testing)
 
 ### Installation
@@ -159,7 +159,7 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 
 ### Setting Up Development Environment
 
-1. **Install Go 1.25.1+**
+1. **Install Go 1.26.0+**
    ```bash
    # Verify installation
    go version
