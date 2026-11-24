@@ -168,6 +168,12 @@ func TestParseLogRecordsDataType_Nil(t *testing.T) {
 	assert.Empty(t, records)
 }
 
+func TestParseLogRecordsDataType_UnknownExtensionObject(t *testing.T) {
+	value := &ua.ExtensionObject{TypeID: &ua.ExpandedNodeID{NodeID: ua.NewNumericNodeID(0, 9999)}}
+	_, err := newTestClient().parseLogRecordsDataType(ua.MustVariant(value))
+	require.ErrorContains(t, err, "unsupported LogRecordsDataType")
+}
+
 func TestSeverityToText(t *testing.T) {
 	// OPC UA Part 26 §5.4 Table 5
 	tests := []struct {

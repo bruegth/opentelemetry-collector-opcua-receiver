@@ -138,7 +138,8 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 │   ├── scraper.go           # Log collection logic
 │   ├── client.go            # OPC UA client wrapper
 │   ├── get_records.go       # GetRecords method call & parsing
-│   ├── log_record_type.go   # ExtensionObject codec for LogRecord
+│   ├── log_records_data_type.go # Standard Part 26 binary decoder
+│   ├── log_record_type.go   # Legacy LogRecord ExtensionObject codec
 │   ├── transformer.go       # Data transformation
 │   ├── *_test.go            # Unit tests
 │   ├── testdata/            # Test utilities & mock server
@@ -190,6 +191,10 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 ### Building
 
 #### Build the OPC UA Test Server
+
+The .NET 10 test server uses OPC Foundation SDK 2.0.2 and returns the standard
+Part 26 `LogRecordsDataType`. Responses contain at most three records per page
+to exercise continuation-point handling.
 
 ```bash
 dotnet build opentelemetry-collector-opcua-receiver.slnx

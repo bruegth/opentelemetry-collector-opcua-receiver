@@ -6,6 +6,11 @@ The OPC UA Log Receiver collects log records from OPC UA servers implementing th
 
 **Features**: multiple authentication methods (anonymous, username/password, X.509 certificates), configurable security policies, severity filtering, trace context propagation, ContinuationPoint pagination.
 
+Polling decodes the standard Part 26 `LogRecordsDataType` response, including
+optional fields. The legacy test-server LogRecord ExtensionObject array remains supported.
+Invalid responses or continuation points fail the scrape rather than silently
+advancing the collection window.
+
 ## Status
 
 **Stability**: Alpha | **Supported Pipeline Types**: logs

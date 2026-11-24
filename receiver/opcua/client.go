@@ -176,18 +176,18 @@ func (c *opcuaClient) GetRecords(ctx context.Context, startTime, endTime time.Ti
 				logObjectID,
 				startTime,
 				endTime,
-				uint32(recordsPerNode-nodeRecords),
+				uint32(recordsPerNode),
 				minSeverity,
 				continuationPoint,
 			)
 
 			if err != nil {
-				c.logger.Warn("Failed to call GetRecords method on LogObject",
-					zap.String("node_id", logObjectID.String()),
-					zap.Error(err))
-				break
+				return nil, fmt.Errorf("failed to call GetRecords on LogObject %s: %w", logObjectID, err)
 			}
 
+			if len(records) > recordsPerNode-nodeRecords {
+				records = records[:recordsPerNode-nodeRecords]
+			}
 			allRecords = append(allRecords, records...)
 			nodeRecords += len(records)
 

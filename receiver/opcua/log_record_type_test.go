@@ -4,6 +4,7 @@
 package opcua
 
 import (
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -11,6 +12,89 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Encoded by OPCFoundation.NetStandard.Opc.Ua 2.0.2's BinaryEncoder.
+const sdkLogRecordsFixture = "020000001F00000000D02E3D3467DB0196000100F907010164000F00000053797374656D436F6D706F6E656E74021800000053797374656D207374617274757020696E697469617465640102030405060708090A0B0C0D0E0F1008070605040302010000000000000000000000000100000009000000636F6D706F6E656E740C0600000073797374656D000000000016F2603467DB012C0102070000006D696E696D616C"
+
+func TestStandardLogRecordsSDKFixture(t *testing.T) {
+	body, err := hex.DecodeString(sdkLogRecordsFixture)
+	require.NoError(t, err)
+	wire := ua.NewBuffer(nil)
+	wire.WriteStruct(&ua.ExpandedNodeID{NodeID: logRecordsBinaryTypeID})
+	wire.WriteByte(ua.ExtensionObjectBinary)
+	wire.WriteUint32(uint32(len(body)))
+	wire.Write(body)
+	require.NoError(t, wire.Error())
+
+	var ext ua.ExtensionObject
+	n, err := ext.Decode(wire.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, wire.Len(), n)
+	value, ok := ext.Value.(*logRecordsDataType)
+	require.True(t, ok)
+	require.Len(t, value.Records, 2)
+
+	records, err := newTestClient().parseLogRecordsDataType(ua.MustVariant(&ext))
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+	assert.Equal(t, time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC), records[0].Timestamp)
+	assert.Equal(t, uint16(150), records[0].Severity)
+	assert.Equal(t, "System startup initiated", records[0].Message)
+	assert.Equal(t, "SystemComponent", records[0].SourceName)
+	assert.Equal(t, uint16(1), records[0].SourceNamespace)
+	assert.Equal(t, "Numeric", records[0].SourceIDType)
+	assert.Equal(t, "100", records[0].SourceID)
+	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", records[0].TraceID)
+	assert.Equal(t, "0102030405060708", records[0].SpanID)
+	assert.Equal(t, "system", records[0].Attributes["component"])
+	assert.Equal(t, "minimal", records[1].Message)
+	assert.Empty(t, records[1].SourceID)
+	assert.Empty(t, records[1].TraceID)
+	assert.Empty(t, records[1].Attributes)
+}
+
+func TestStandardLogRecordOpaqueNodeAndArray(t *testing.T) {
+	// SDK 2.0.2: SourceNode is ns=2;b=AAECAw== and AdditionalData contains a string array.
+	body, err := hex.DecodeString("010000001200000000D02E3D3467DB019600050200040000000001020302060000006F70617175650100000004000000746167738C02000000030000006F6E650300000074776F")
+	require.NoError(t, err)
+	var wrapper logRecordsDataType
+	_, err = wrapper.Decode(body)
+	require.NoError(t, err)
+	require.Len(t, wrapper.Records, 1)
+	record := logRecordExtObjToRecord((*LogRecordExtObj)(&wrapper.Records[0]))
+	assert.Equal(t, uint16(2), record.SourceNamespace)
+	assert.Equal(t, "Opaque", record.SourceIDType)
+	assert.Equal(t, "AAECAw==", record.SourceID)
+	assert.Equal(t, []string{"one", "two"}, record.Attributes["tags"])
+}
+
+func TestStandardLogRecordsMalformed(t *testing.T) {
+	body, err := hex.DecodeString(sdkLogRecordsFixture)
+	require.NoError(t, err)
+	for i := 0; i < len(body); i++ {
+		_, err := new(logRecordsDataType).Decode(body[:i])
+		require.Error(t, err, "truncated at byte %d", i)
+	}
+	for _, raw := range []string{
+		"FEFFFFFF",                               // invalid negative array length
+		"00000100",                               // array exceeds the decoder limit
+		"01000000200000000000000000000000000000", // unknown optional field
+		"0000000000",                             // trailing data
+	} {
+		bad, err := hex.DecodeString(raw)
+		require.NoError(t, err)
+		_, err = new(logRecordsDataType).Decode(bad)
+		require.Error(t, err)
+	}
+	for _, raw := range []string{"00000000", "FFFFFFFF"} {
+		empty, err := hex.DecodeString(raw)
+		require.NoError(t, err)
+		var result logRecordsDataType
+		_, err = result.Decode(empty)
+		require.NoError(t, err)
+		require.Empty(t, result.Records)
+	}
+}
 
 // fixedTraceIDBytes returns the W3C TraceId bytes for "0102030405060708090a0b0c0d0e0f10".
 func fixedTraceIDBytes() [16]byte {

@@ -78,11 +78,6 @@ func (c *opcuaClient) callGetRecordsMethod(
 		case ua.StatusBadInvalidArgument:
 			return nil, nil, fmt.Errorf("invalid argument: EndTime < StartTime or invalid severity range")
 		case ua.StatusBadContinuationPointInvalid:
-			c.logger.Warn("Continuation point invalid, restarting query without continuation point")
-			// Retry without continuation point
-			if len(continuationPoint) > 0 {
-				return c.callGetRecordsMethod(ctx, logObjectID, startTime, endTime, maxRecords, minSeverity, nil)
-			}
 			return nil, nil, fmt.Errorf("continuation point invalid")
 		default:
 			return nil, nil, fmt.Errorf("GetRecords method call failed with status: %v", result.StatusCode)
@@ -122,11 +117,22 @@ func (c *opcuaClient) parseLogRecordsDataType(variant *ua.Variant) ([]testdata.O
 		return []testdata.OPCUALogRecord{}, nil
 	}
 
-	// The LogRecordsDataType contains an array of LogRecord ExtensionObjects
 	value := variant.Value()
 
-	// Handle different possible response formats
 	switch v := value.(type) {
+	case *ua.ExtensionObject:
+		if v == nil {
+			return nil, fmt.Errorf("LogRecordsDataType ExtensionObject is nil")
+		}
+		wrapper, ok := v.Value.(*logRecordsDataType)
+		if !ok || wrapper == nil {
+			return nil, fmt.Errorf("unsupported LogRecordsDataType ExtensionObject value: %T", v.Value)
+		}
+		records := make([]testdata.OPCUALogRecord, 0, len(wrapper.Records))
+		for i := range wrapper.Records {
+			records = append(records, logRecordExtObjToRecord((*LogRecordExtObj)(&wrapper.Records[i])))
+		}
+		return records, nil
 	case []interface{}:
 		return c.parseLogRecordArray(v)
 	case []*ua.ExtensionObject:
@@ -134,9 +140,7 @@ func (c *opcuaClient) parseLogRecordsDataType(variant *ua.Variant) ([]testdata.O
 	case nil:
 		return []testdata.OPCUALogRecord{}, nil
 	default:
-		c.logger.Warn("Unexpected LogRecords data type",
-			zap.String("type", fmt.Sprintf("%T", value)))
-		return []testdata.OPCUALogRecord{}, nil
+		return nil, fmt.Errorf("unexpected LogRecords data type %T", value)
 	}
 }
 
@@ -201,9 +205,12 @@ func (c *opcuaClient) parseLogRecordFromExtensionObject(obj *ua.ExtensionObject)
 	if lr, ok := obj.Value.(*LogRecordExtObj); ok && lr != nil {
 		return logRecordExtObjToRecord(lr), nil
 	}
+	if lr, ok := obj.Value.(*standardLogRecord); ok && lr != nil {
+		return logRecordExtObjToRecord((*LogRecordExtObj)(lr)), nil
+	}
 
-	// Fallback: if the Value is raw bytes (type not registered due to namespace mismatch),
-	// manually decode the binary body using our LogRecordExtObj decoder.
+	// Support callers which explicitly provide a raw legacy binary body. gopcua
+	// itself discards the body of an unregistered ExtensionObject.
 	if raw, ok := obj.Value.([]byte); ok && len(raw) > 0 {
 		c.logger.Debug("Falling back to manual binary decoding for ExtensionObject",
 			zap.String("type_id", obj.TypeID.String()),
@@ -334,7 +341,7 @@ func nodeIDComponents(nodeID *ua.NodeID) (namespace uint16, idType string, id st
 		id = nodeID.String() // full string representation for GUID
 	case ua.NodeIDTypeByteString:
 		idType = "Opaque"
-		id = fmt.Sprintf("%d", nodeID.IntID())
+		id = nodeID.StringID()
 	default: // NodeIDTypeTwoByte, NodeIDTypeFourByte, NodeIDTypeNumeric
 		idType = "Numeric"
 		id = fmt.Sprintf("%d", nodeID.IntID())
