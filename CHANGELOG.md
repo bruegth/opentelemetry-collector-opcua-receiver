@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Correct the default ServerLog NodeID, severity thresholds and trace flags; endpoint selection now rejects mismatched security settings.
 
 ### Added
+- Collector builds for Linux ARMv7, PPC64LE and S390X, alongside AMD64 and ARM64.
 - Subscription-based log collection via OPC UA `BaseLogEventType` events
   (`collection_mode: subscription`). The server pushes log records as they
   arrive instead of the collector polling on a fixed interval.

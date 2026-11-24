@@ -273,12 +273,22 @@ docker run -p 4317:4317 -p 4318:4318 \
 
 ### Multi-Architecture Build
 
+The collector can be cross-compiled for `linux/amd64`, `linux/arm/v7`, `linux/arm64`,
+`linux/ppc64le`, and `linux/s390x`. The release workflow publishes binaries
+for these targets; it does not publish container images. Runtime testing on
+each target architecture is still recommended.
+
+The OCI archive build requires a Buildx builder with OCI export support, such
+as the `docker-container` driver or a containerd image store.
+
 ```bash
-# Build for multiple platforms
-docker buildx build --platform linux/amd64,linux/arm64 -t otelcol-opcua:latest .
+# Build a local multi-platform OCI archive
+docker buildx build --platform linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x \
+  --output type=oci,dest=otelcol-opcua.oci.tar -t otelcol-opcua:latest .
 ```
 
-Or use the PowerShell build script on Windows:
+Or use the PowerShell build script on Windows to load and run the image. Loading
+multiple platforms requires a Docker containerd image store:
 ```powershell
 .\build.ps1
 ```
