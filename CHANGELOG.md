@@ -6,12 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Declare the logs receiver beta; known Part 26 gaps are documented in the review notes.
+- Correct the default ServerLog NodeID, severity thresholds and trace flags; endpoint selection now rejects mismatched security settings.
+
 ### Added
 - Subscription-based log collection via OPC UA `BaseLogEventType` events
   (`collection_mode: subscription`). The server pushes log records as they
   arrive instead of the collector polling on a fixed interval.
-- `ConditionClassId` and `ConditionSubClassId` verification per OPC UA
-  Part 26 §6.5 before subscribing to a node.
+- Node-side `ConditionClassId` and `ConditionSubClassId` checks before
+  subscribing; these checks do not yet implement Part 26 event filtering.
 - Extended C# test server with `BaseLogEventType` event firing and
   `ConditionClassId`/`ConditionSubClassId` properties for local testing
 

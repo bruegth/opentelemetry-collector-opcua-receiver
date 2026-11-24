@@ -3,12 +3,12 @@ type: opcua
 status:
   class: receiver
   stability:
-    alpha: [logs]
+    beta: [logs]
   distributions: []
   codeowners:
     active: [bruegth]
   warnings:
-    - This receiver is in alpha and subject to change
+    - This receiver is in beta; see the documented Part 26 limitations
 
 tests:
   config:

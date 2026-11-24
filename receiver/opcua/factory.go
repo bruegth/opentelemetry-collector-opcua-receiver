@@ -15,7 +15,7 @@ var (
 	// Type is the type of this receiver
 	Type = component.MustNewType("opcua")
 	// Stability level of the receiver
-	stability = component.StabilityLevelAlpha
+	stability = component.StabilityLevelBeta
 )
 
 // NewFactory creates a factory for OPC UA receiver

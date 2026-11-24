@@ -8,12 +8,11 @@ The OPC UA Log Receiver collects log records from OPC UA servers implementing th
 
 Polling decodes the standard Part 26 `LogRecordsDataType` response, including
 optional fields. The legacy test-server LogRecord ExtensionObject array remains supported.
-Invalid responses or continuation points fail the scrape rather than silently
-advancing the collection window.
+Unsupported standard response types and invalid continuation points fail the scrape.
 
 ## Status
 
-**Stability**: Alpha | **Supported Pipeline Types**: logs
+**Stability**: Beta | **Supported Pipeline Types**: logs
 
 ## Prerequisites
 
@@ -53,7 +52,7 @@ receivers:
     # LogObject node paths to collect from
     log_object_paths:
       - Objects/ServerLog
-      - Objects/DeviceSets/Device1/Logs
+      - "ns=2;s=DeviceLog"
 
     # Collection settings
     collection_interval: 30s
@@ -106,14 +105,15 @@ service:
   - Options: `None`, `Sign`, `SignAndEncrypt`
 
 - **auth** (object): Authentication configuration
+  - Known limitation: username and certificate user authentication are not reliably configured; see the [review](../../PART26_REVIEW.md).
   - **type** (string): Authentication type. Default: `anonymous`
     - Options: `anonymous`, `username_password`, `certificate`
   - **username** / **password** (string): Credentials for `username_password` auth
   - **cert_file** / **key_file** (string): Certificate paths for `certificate` auth
 
-- **log_object_paths** ([]string): Paths or NodeIDs of LogObject nodes. Default: `["Objects/ServerLog"]`
-  - Supports browse path format: `"Objects/ServerLog"`
-  - Supports NodeID format: `"ns=0;i=2042"` or `"i=2042"`
+- **log_object_paths** ([]string): LogObject NodeIDs or known ServerLog aliases. Default: `["Objects/ServerLog"]`
+  - `"Objects/ServerLog"` and `"Objects/Server/ServerLog"` resolve to the standard ServerLog NodeID.
+  - Supports NodeID format: `"ns=0;i=19372"` or `"ns=2;s=DeviceLog"`; arbitrary browse paths are not resolved.
 
 - **collection_interval** (duration): Interval between log collections. Default: `30s`. Minimum: `1s`
 
@@ -121,8 +121,8 @@ service:
 
 - **filter** (object): Log filtering options
   - **min_severity** (string): Minimum severity to collect. Default: `Info`
-    - Options: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`, `Emergency`
-  - **max_log_records** (int): Maximum total records per collection. Default: `10000`
+    - Options: `Trace`, `Debug`, `Info`, `Warn`, `Warning`, `Error`, `Fatal`, `Emergency`
+  - **max_log_records** (int): Currently not enforced. Default: `10000`
 
 - **connection_timeout** (duration): Timeout for establishing connection. Default: `30s`
 
@@ -130,8 +130,8 @@ service:
 
 - **tls** (object): TLS configuration
   - **cert_file** / **key_file** (string): Client certificate and key
-  - **ca_file** (string): CA certificate
-  - **insecure_skip_verify** (bool): Skip certificate verification. Default: `false`
+  - **ca_file** (string): Currently not applied to the OPC UA client
+  - **insecure_skip_verify** (bool): Currently not applied to the OPC UA client. Default: `false`
 
 - **resource** (object): Resource attributes emitted with every log record
   - **service_name** (string): Value for `service.name`. Default: `opcua-server`
@@ -173,7 +173,7 @@ The receiver maps OPC UA Part 26 §5.4 severity values to OpenTelemetry Severity
 | `opcua.source.id` | string | Node ID value |
 | Custom attributes | various | Additional fields from the OPC UA LogRecord (string, int, float, bool) |
 
-Trace context (`traceId`, `spanId`, `traceFlags`) is preserved when present in the OPC UA record.
+Polling maps present trace and span IDs and marks the trace ID random, as described in Part 26 Annex C; the source does not provide a sampled flag.
 
 ## Troubleshooting
 
@@ -199,7 +199,7 @@ Trace context (`traceId`, `spanId`, `traceFlags`) is preserved when present in t
 
 - Increase `collection_interval` to reduce polling frequency
 - Decrease `max_records_per_call` to limit batch sizes
-- Use `filter.min_severity` and `filter.max_log_records` to limit volume
+- Use `filter.min_severity` to limit volume
 
 ## Development
 
@@ -225,9 +225,8 @@ go test -run TestTransformLogs -v
 
 ## Limitations
 
-- **Alpha Status**: API may change
-- **Polling Only**: Subscriptions not yet supported
-- **Part 26 Adoption**: Most OPC UA servers don't implement Part 26 yet
+- **Beta Status**: Known interoperability and data-loss risks remain; see the [Part 26 review](../../PART26_REVIEW.md).
+- **Part 26 Adoption**: Server support varies; compatibility has been tested with the included SDK 2.0.2 test server.
 
 ## Contributing
 

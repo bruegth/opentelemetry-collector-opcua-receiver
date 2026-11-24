@@ -2,8 +2,8 @@
 
 ## Structure
 
-- `receiver/opcua` is the Go module for an alpha OpenTelemetry logs receiver for OPC UA Part 26. `go.work` includes this module.
-- `factory.go` selects polling (`receiver.go`, `scraper.go`) or events (`subscription_receiver.go`). `client.go` and `get_records.go` implement OPC UA access and continuation-point pagination; `log_record_type.go` decodes records and `transformer.go` maps them to OpenTelemetry logs.
+- `receiver/opcua` is the Go module for a beta OpenTelemetry logs receiver for OPC UA Part 26. `go.work` includes this module.
+- `factory.go` selects polling (`receiver.go`, `scraper.go`) or events (`subscription_receiver.go`). `client.go` and `get_records.go` implement OPC UA access and continuation-point pagination; `log_records_data_type.go` decodes standard records and `transformer.go` maps them to OpenTelemetry logs.
 - `receiver/opcua/testdata` contains mocks and record types also imported by production code. The C# server and expected records in `testserver` support Docker end-to-end tests.
 
 ## Build and test

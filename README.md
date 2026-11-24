@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua.svg)](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
 [![Go version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver?filename=%2Freceiver%2Fopcua%2Fgo.mod)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Stability: Alpha](https://img.shields.io/badge/stability-alpha-orange.svg)](CONTRIBUTING.md)
+[![Stability: Beta](https://img.shields.io/badge/stability-beta-yellow.svg)](CONTRIBUTING.md)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
 
 An OpenTelemetry Collector receiver for collecting logs from OPC UA servers implementing the LogObject specification (OPC UA Part 26).
@@ -16,7 +16,7 @@ This project provides a custom receiver for the OpenTelemetry Collector that ena
 
 ### Status
 
-**Alpha**: This receiver is in alpha stage. The API may change and the implementation is being actively developed.
+**Beta**: The receiver is under active development and has known Part 26 limitations; see the [review notes](PART26_REVIEW.md) before production use.
 
 ## Quick Start
 
@@ -99,7 +99,7 @@ receivers:
       password: ${env:OPCUA_PASSWORD}
     log_object_paths:
       - Objects/ServerLog
-      - Objects/DeviceSets/Device1/Logs
+      - "ns=2;s=DeviceLog"
     collection_interval: 30s
     max_records_per_call: 1000
     filter:
@@ -312,7 +312,7 @@ For more detail, see [receiver/opcua/README.md](receiver/opcua/README.md#trouble
 - [x] Subscription-based log collection (in addition to polling)
 - [ ] Enhanced filtering capabilities
 - [ ] Performance metrics
-- [ ] Beta stability
+- [x] Beta stability
 
 ## License
 
