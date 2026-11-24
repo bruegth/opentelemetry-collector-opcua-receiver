@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
+
+	"github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua/testdata"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -56,7 +58,7 @@ func makeEventFields(ts time.Time, severity uint16, msg, sourceName string) []*u
 	fields[fieldIdxMessage] = ua.MustVariant(&ua.LocalizedText{Text: msg})
 	fields[fieldIdxSourceName] = ua.MustVariant(sourceName)
 	fields[fieldIdxSourceNode] = ua.MustVariant(ua.NewNumericNodeID(1, 100))
-	fields[fieldIdxTraceContext] = ua.MustVariant(uint32(0))    // no trace
+	fields[fieldIdxTraceContext] = ua.MustVariant(uint32(0))   // no trace
 	fields[fieldIdxAdditionalData] = ua.MustVariant(uint32(0)) // no additional data
 	return fields
 }
@@ -307,9 +309,32 @@ func TestResolveNodeID(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, nodeID)
+				if tt.path == "Objects/ServerLog" || tt.path == "Objects/Server/ServerLog" || tt.path == "ServerLog" || tt.path == "Objects/Server/ServerDiagnostics/ServerLog" {
+					assert.Equal(t, ua.NewNumericNodeID(0, 19372), nodeID)
+				}
 			}
 		})
 	}
+}
+
+func TestSelectEndpointForConfig(t *testing.T) {
+	open := &ua.EndpointDescription{SecurityPolicyURI: ua.SecurityPolicyURINone, SecurityMode: ua.MessageSecurityModeNone}
+	secure128 := &ua.EndpointDescription{SecurityPolicyURI: ua.SecurityPolicyURIAes128Sha256RsaOaep, SecurityMode: ua.MessageSecurityModeSignAndEncrypt}
+	secure := &ua.EndpointDescription{SecurityPolicyURI: ua.SecurityPolicyURIAes256Sha256RsaPss, SecurityMode: ua.MessageSecurityModeSignAndEncrypt}
+	endpoints := []*ua.EndpointDescription{nil, open, secure128, secure}
+	assert.Same(t, open, selectEndpointForConfig(endpoints, &Config{SecurityPolicy: "None", SecurityMode: "None"}))
+	assert.Same(t, secure128, selectEndpointForConfig(endpoints, &Config{SecurityPolicy: "Aes128_Sha256_RsaOaep", SecurityMode: "SignAndEncrypt"}))
+	assert.Same(t, secure, selectEndpointForConfig(endpoints, &Config{SecurityPolicy: "Aes256_Sha256_RsaPss", SecurityMode: "SignAndEncrypt"}))
+	assert.Nil(t, selectEndpointForConfig(endpoints, &Config{SecurityPolicy: "Basic256Sha256", SecurityMode: "SignAndEncrypt"}))
+	assert.Nil(t, selectEndpointForConfig(endpoints, &Config{SecurityPolicy: "Aes256_Sha256_RsaPss", SecurityMode: "Sign"}))
+}
+
+func TestPart26TraceFlags(t *testing.T) {
+	record := logRecordExtObjToRecord(&LogRecordExtObj{TraceIDBytes: fixedTraceIDBytes(), SpanID: 1})
+	logs := NewTransformer("opc.tcp://localhost:4840", "", "").TransformLogs([]testdata.OPCUALogRecord{record})
+	flags := logs.ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0).Flags()
+	assert.Equal(t, uint32(0x02), uint32(flags))
+	assert.False(t, flags.IsSampled())
 }
 
 // ── default config ────────────────────────────────────────────────────────

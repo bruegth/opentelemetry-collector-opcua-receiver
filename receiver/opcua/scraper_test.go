@@ -236,8 +236,8 @@ func TestScraperIntegrationFiltering(t *testing.T) {
 	records := []testdata.OPCUALogRecord{
 		{Timestamp: now, Severity: 50, Message: "Debug message", Attributes: make(map[string]interface{})},
 		{Timestamp: now, Severity: 150, Message: "Info message", Attributes: make(map[string]interface{})},
-		{Timestamp: now, Severity: 250, Message: "Warning message", Attributes: make(map[string]interface{})},
-		{Timestamp: now, Severity: 350, Message: "Error message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 151, Message: "Warning message", Attributes: make(map[string]interface{})},
+		{Timestamp: now, Severity: 201, Message: "Error message", Attributes: make(map[string]interface{})},
 	}
 	mockServer.AddLogRecords(records)
 
@@ -317,7 +317,7 @@ func (m *mockClientAdapter) GetRecords(
 	continuationPoint := []byte(nil)
 
 	// Get minimum severity from config
-	minSeverity := getMinSeverityValueFromConfig(m.config.Filter.MinSeverity)
+	minSeverity := (&opcuaClient{config: m.config}).getMinSeverityValue()
 
 	// Keep fetching records using continuation points until no more records
 	for {
@@ -338,24 +338,4 @@ func (m *mockClientAdapter) GetRecords(
 	}
 
 	return allRecords, nil
-}
-
-// getMinSeverityValueFromConfig converts config severity string to numeric value
-func getMinSeverityValueFromConfig(minSeverity string) uint16 {
-	switch minSeverity {
-	case "Trace":
-		return 51
-	case "Debug":
-		return 1
-	case "Info":
-		return 101
-	case "Warn", "Warning":
-		return 201
-	case "Error":
-		return 301
-	case "Fatal", "Emergency":
-		return 401
-	default:
-		return 101 // Default to Info
-	}
 }

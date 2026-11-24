@@ -30,6 +30,7 @@ const (
 	fieldIdxTraceContext   = 5
 	fieldIdxAdditionalData = 6
 	fieldIdxCount          = 7
+	serverLogNodeID        = 19372
 )
 
 // logEventSelectClauses returns the SimpleAttributeOperand select clauses for
@@ -522,10 +523,10 @@ func resolveNodeID(path string) (*ua.NodeID, error) {
 		}
 	}
 	knownPaths := map[string]uint32{
-		"Objects/ServerLog":        2042,
-		"Objects/Server/ServerLog": 2042,
-		"ServerLog":                2042,
-		"Objects/Server/ServerDiagnostics/ServerLog": 2042,
+		"Objects/ServerLog":        serverLogNodeID,
+		"Objects/Server/ServerLog": serverLogNodeID,
+		"ServerLog":                serverLogNodeID,
+		"Objects/Server/ServerDiagnostics/ServerLog": serverLogNodeID,
 	}
 	if id, ok := knownPaths[path]; ok {
 		return ua.NewNumericNodeID(0, id), nil
@@ -535,19 +536,8 @@ func resolveNodeID(path string) (*ua.NodeID, error) {
 			"or a known browse path", path)
 }
 
-// verifyLogEntryConditionClass checks that nodeID is a Part 26 LogObject by
-// verifying that either ConditionClassId or ConditionSubClassId (OPC UA Part 26
-// §6.5) points to a type whose BrowseName is "LogEntryConditionClassType".
-//
-// Per the spec: "An instance of LogObject can contain LogRecords that result
-// from Events that have a ConditionClassId OR ConditionSubClassId of
-// LogEntryConditionClassType."
-//
-// Returns true if the node is verified, false if the check fails (node is skipped).
-//
-// Implementation note: LogEntryConditionClassType lives in the Part 26 companion
-// namespace, not ns=0, so we compare the BrowseName Name component only —
-// namespace-independent and works on any conforming server.
+// verifyLogEntryConditionClass checks compatibility properties on a notifier.
+// This is not a substitute for filtering the class of each event; see the review notes.
 func (r *subscriptionReceiver) verifyLogEntryConditionClass(ctx context.Context, nodeID *ua.NodeID, path string) bool {
 	const logEntryConditionClassName = "LogEntryConditionClassType"
 
@@ -638,42 +628,29 @@ func (r *subscriptionReceiver) verifyLogEntryConditionClass(ctx context.Context,
 	return false
 }
 
-// selectEndpointForConfig picks the best matching endpoint.
+// selectEndpointForConfig requires an exact security policy and mode match.
 func selectEndpointForConfig(endpoints []*ua.EndpointDescription, cfg *Config) *ua.EndpointDescription {
-	for _, ep := range endpoints {
-		policyMatch := false
-		switch cfg.SecurityPolicy {
-		case "None":
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURINone
-		case "Basic256":
-			policyMatch = ep.SecurityPolicyURI == "http://opcfoundation.org/UA/SecurityPolicy#Basic256"
-		case "Basic256Sha256":
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURIBasic256Sha256
-		default:
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURINone
-		}
-		modeMatch := false
-		switch cfg.SecurityMode {
-		case "None":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeNone
-		case "Sign":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeSign
-		case "SignAndEncrypt":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeSignAndEncrypt
-		default:
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeNone
-		}
-		if policyMatch && modeMatch {
-			return ep
-		}
+	policies := map[string]string{
+		"None":                  ua.SecurityPolicyURINone,
+		"Basic256":              "http://opcfoundation.org/UA/SecurityPolicy#Basic256",
+		"Basic256Sha256":        ua.SecurityPolicyURIBasic256Sha256,
+		"Aes128_Sha256_RsaOaep": ua.SecurityPolicyURIAes128Sha256RsaOaep,
+		"Aes256_Sha256_RsaPss":  ua.SecurityPolicyURIAes256Sha256RsaPss,
+	}
+	modes := map[string]ua.MessageSecurityMode{
+		"None":           ua.MessageSecurityModeNone,
+		"Sign":           ua.MessageSecurityModeSign,
+		"SignAndEncrypt": ua.MessageSecurityModeSignAndEncrypt,
+	}
+	policy, validPolicy := policies[cfg.SecurityPolicy]
+	mode, validMode := modes[cfg.SecurityMode]
+	if !validPolicy || !validMode {
+		return nil
 	}
 	for _, ep := range endpoints {
-		if cfg.SecurityMode == "None" && ep.SecurityMode == ua.MessageSecurityModeNone {
+		if ep != nil && ep.SecurityPolicyURI == policy && ep.SecurityMode == mode {
 			return ep
 		}
-	}
-	if len(endpoints) > 0 {
-		return endpoints[0]
 	}
 	return nil
 }

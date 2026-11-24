@@ -49,7 +49,7 @@ func (c *opcuaClient) Connect(ctx context.Context) error {
 	}
 
 	// Select appropriate endpoint based on security settings
-	ep := c.selectEndpoint(endpoints)
+	ep := selectEndpointForConfig(endpoints, c.config)
 	if ep == nil {
 		return fmt.Errorf("no suitable endpoint found for security settings")
 	}
@@ -100,7 +100,7 @@ func (c *opcuaClient) Connect(ctx context.Context) error {
 	// Discover LogObject nodes from configured paths
 	if err := c.discoverLogObjects(ctx); err != nil {
 		c.logger.Warn("Failed to discover LogObject nodes from configured paths", zap.Error(err))
-		// Fallback: try standard ServerLog node (NodeID 2042 in namespace 0)
+		// Fallback: try the standard ServerLog node.
 		c.logger.Info("Attempting to use default ServerLog node as fallback")
 		if err := c.tryDefaultServerLog(ctx); err != nil {
 			return fmt.Errorf("failed to discover any LogObject nodes: %w", err)
@@ -176,18 +176,18 @@ func (c *opcuaClient) GetRecords(ctx context.Context, startTime, endTime time.Ti
 				logObjectID,
 				startTime,
 				endTime,
-				uint32(recordsPerNode-nodeRecords),
+				uint32(recordsPerNode),
 				minSeverity,
 				continuationPoint,
 			)
 
 			if err != nil {
-				c.logger.Warn("Failed to call GetRecords method on LogObject",
-					zap.String("node_id", logObjectID.String()),
-					zap.Error(err))
-				break
+				return nil, fmt.Errorf("failed to call GetRecords on LogObject %s: %w", logObjectID, err)
 			}
 
+			if len(records) > recordsPerNode-nodeRecords {
+				records = records[:recordsPerNode-nodeRecords]
+			}
 			allRecords = append(allRecords, records...)
 			nodeRecords += len(records)
 
@@ -201,56 +201,6 @@ func (c *opcuaClient) GetRecords(ctx context.Context, startTime, endTime time.Ti
 	}
 
 	return allRecords, nil
-}
-
-// selectEndpoint selects an appropriate endpoint based on security configuration
-func (c *opcuaClient) selectEndpoint(endpoints []*ua.EndpointDescription) *ua.EndpointDescription {
-	// Try to find an endpoint matching the configured security
-	for _, ep := range endpoints {
-		// Check security policy
-		policyMatch := false
-		switch c.config.SecurityPolicy {
-		case "None":
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURINone
-		case "Basic256":
-			policyMatch = ep.SecurityPolicyURI == "http://opcfoundation.org/UA/SecurityPolicy#Basic256"
-		case "Basic256Sha256":
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURIBasic256Sha256
-		default:
-			policyMatch = ep.SecurityPolicyURI == ua.SecurityPolicyURINone
-		}
-
-		// Check security mode
-		modeMatch := false
-		switch c.config.SecurityMode {
-		case "None":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeNone
-		case "Sign":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeSign
-		case "SignAndEncrypt":
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeSignAndEncrypt
-		default:
-			modeMatch = ep.SecurityMode == ua.MessageSecurityModeNone
-		}
-
-		if policyMatch && modeMatch {
-			return ep
-		}
-	}
-
-	// Fallback to first endpoint with matching mode or first available
-	for _, ep := range endpoints {
-		if c.config.SecurityMode == "None" && ep.SecurityMode == ua.MessageSecurityModeNone {
-			return ep
-		}
-	}
-
-	// Last resort: return first endpoint
-	if len(endpoints) > 0 {
-		return endpoints[0]
-	}
-
-	return nil
 }
 
 // discoverLogObjects discovers LogObject nodes based on configured paths
@@ -300,8 +250,7 @@ func (c *opcuaClient) discoverLogObjects(ctx context.Context) error {
 
 // tryDefaultServerLog attempts to use the standard ServerLog node as fallback
 func (c *opcuaClient) tryDefaultServerLog(ctx context.Context) error {
-	// Standard ServerLog node (NodeID 2042 in namespace 0)
-	defaultNodeID := ua.NewNumericNodeID(0, 2042)
+	defaultNodeID := ua.NewNumericNodeID(0, serverLogNodeID)
 
 	if err := c.verifyNodeExists(ctx, defaultNodeID); err != nil {
 		return fmt.Errorf("default ServerLog node not accessible: %w", err)
@@ -343,43 +292,12 @@ func (c *opcuaClient) verifyNodeExists(ctx context.Context, nodeID *ua.NodeID) e
 
 // translateBrowsePathToNodeID converts a browse path string or NodeID string to a NodeID
 func (c *opcuaClient) translateBrowsePathToNodeID(ctx context.Context, path string) (*ua.NodeID, error) {
-	// First, try to parse as a NodeID string (e.g., "ns=0;i=2042" or "i=2042")
-	if nodeID, err := ua.ParseNodeID(path); err == nil {
-		c.logger.Debug("Parsed path as NodeID", zap.String("path", path), zap.String("node_id", nodeID.String()))
-		return nodeID, nil
-	}
-
-	// Otherwise, treat as browse path and use known mappings
-	nodeID, err := c.resolveBrowsePath(path)
+	nodeID, err := resolveNodeID(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve browse path %s: %w", path, err)
 	}
 
 	return nodeID, nil
-}
-
-// resolveBrowsePath resolves known browse paths to NodeIDs
-func (c *opcuaClient) resolveBrowsePath(path string) (*ua.NodeID, error) {
-	// Map of known browse paths to their NodeIDs
-	knownPaths := map[string]*ua.NodeID{
-		"Objects/ServerLog":        ua.NewNumericNodeID(0, 2042),
-		"Objects/Server/ServerLog": ua.NewNumericNodeID(0, 2042),
-		"ServerLog":                ua.NewNumericNodeID(0, 2042),
-		"Objects/Server/ServerDiagnostics/ServerLog": ua.NewNumericNodeID(0, 2042),
-	}
-
-	// Check if path matches a known mapping
-	if nodeID, ok := knownPaths[path]; ok {
-		c.logger.Debug("Resolved browse path using known mapping",
-			zap.String("path", path),
-			zap.String("node_id", nodeID.String()))
-		return nodeID, nil
-	}
-
-	// For unknown paths, try to browse the address space
-	// This is a simplified implementation - a full implementation would use
-	// the TranslateBrowsePathsToNodeIDs service
-	return nil, fmt.Errorf("unknown browse path: %s (use NodeID format like 'ns=0;i=2042' or add to known paths)", path)
 }
 
 // findGetRecordsMethod browses the children of a LogObject node to find a method

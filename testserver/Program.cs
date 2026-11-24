@@ -4,6 +4,7 @@
 using Opc.Ua;
 using Opc.Ua.Configuration;
 using Opc.Ua.Server;
+using System.Runtime.InteropServices;
 
 namespace OpcUaTestServer;
 
@@ -13,7 +14,8 @@ class Program
     {
         Console.WriteLine("OPC UA Test Server starting...");
 
-        var application = new ApplicationInstance
+        var telemetry = DefaultTelemetry.Create(_ => { });
+        var application = new ApplicationInstance(telemetry)
         {
             ApplicationName = "OPC UA Test Server",
             ApplicationType = ApplicationType.Server,
@@ -28,34 +30,27 @@ class Program
             configPath = Path.Combine(Directory.GetCurrentDirectory(), "server-config.xml");
         }
 
-        ApplicationConfiguration config;
         if (File.Exists(configPath))
         {
-            config = await application.LoadApplicationConfiguration(configPath, silent: true);
+            await application.LoadApplicationConfigurationAsync(configPath, silent: true);
         }
         else
         {
-            config = CreateDefaultConfiguration(application);
+            await CreateDefaultConfigurationAsync(application);
         }
 
         // Check certificate
-        bool haveAppCertificate = await application.CheckApplicationInstanceCertificate(
-            silent: true, minimumKeySize: 0);
+        bool haveAppCertificate = await application.CheckApplicationInstanceCertificatesAsync(silent: true);
 
         if (!haveAppCertificate)
         {
             Console.WriteLine("WARNING: No application certificate, using insecure connection.");
         }
 
-        // Auto-accept untrusted certificates for testing
-        config.CertificateValidator.CertificateValidation += (sender, e) =>
-        {
-            e.Accept = true;
-        };
-
         // Start the server
-        var server = new TestServerInstance();
-        await application.Start(server);
+        var server = new TestServerInstance(telemetry);
+        server.AddNodeManager(new TestNodeManagerFactory());
+        await application.StartAsync(server);
 
         Console.WriteLine($"Server started. Endpoints:");
         foreach (var endpoint in server.GetEndpoints())
@@ -66,7 +61,13 @@ class Program
         Console.WriteLine("Press Ctrl+C to exit...");
 
         // Wait for shutdown signal
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
+        using var sigterm = OperatingSystem.IsWindows() ? null :
+            PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+            {
+                context.Cancel = true;
+                cts.Cancel();
+            });
         Console.CancelKeyPress += (_, e) =>
         {
             e.Cancel = true;
@@ -83,10 +84,10 @@ class Program
         }
 
         Console.WriteLine("Server shutting down...");
-        server.Stop();
+        await application.StopAsync();
     }
 
-    private static ApplicationConfiguration CreateDefaultConfiguration(ApplicationInstance application)
+    private static async Task CreateDefaultConfigurationAsync(ApplicationInstance application)
     {
         var config = new ApplicationConfiguration
         {
@@ -118,32 +119,29 @@ class Program
                 },
                 AutoAcceptUntrustedCertificates = true
             },
-            TransportConfigurations = new TransportConfigurationCollection(),
+            TransportConfigurations = ArrayOf.Empty<TransportConfiguration>(),
             TransportQuotas = new TransportQuotas { OperationTimeout = 15000 },
             ServerConfiguration = new ServerConfiguration
             {
-                BaseAddresses = { "opc.tcp://0.0.0.0:4840/TestServer" },
+                BaseAddresses = ArrayOf.ToArrayOf(new[] { "opc.tcp://0.0.0.0:4840/TestServer" }),
                 MinRequestThreadCount = 5,
                 MaxRequestThreadCount = 100,
                 MaxQueuedRequestCount = 200,
-                SecurityPolicies = new ServerSecurityPolicyCollection
-                {
+                SecurityPolicies = ArrayOf.ToArrayOf(new[] {
                     new ServerSecurityPolicy
                     {
                         SecurityMode = MessageSecurityMode.None,
                         SecurityPolicyUri = SecurityPolicies.None
                     }
-                },
-                UserTokenPolicies = new UserTokenPolicyCollection
-                {
+                }),
+                UserTokenPolicies = ArrayOf.ToArrayOf(new[] {
                     new UserTokenPolicy(UserTokenType.Anonymous)
-                }
+                })
             }
         };
 
-        config.Validate(ApplicationType.Server).GetAwaiter().GetResult();
+        await config.ValidateAsync(ApplicationType.Server);
         application.ApplicationConfiguration = config;
-        return config;
     }
 }
 
@@ -152,17 +150,7 @@ class Program
 /// </summary>
 class TestServerInstance : StandardServer
 {
-    protected override MasterNodeManager CreateMasterNodeManager(IServerInternal server, ApplicationConfiguration configuration)
-    {
-        Console.WriteLine("Creating node managers...");
-
-        var nodeManagers = new List<INodeManager>
-        {
-            new TestNodeManager(server, configuration)
-        };
-
-        return new MasterNodeManager(server, configuration, null, nodeManagers.ToArray());
-    }
+    public TestServerInstance(ITelemetryContext telemetry) : base(telemetry) { }
 
     protected override ServerProperties LoadServerProperties()
     {
@@ -176,4 +164,12 @@ class TestServerInstance : StandardServer
             BuildDate = DateTime.UtcNow
         };
     }
+}
+
+class TestNodeManagerFactory : INodeManagerFactory
+{
+    public ArrayOf<string> NamespacesUris => ArrayOf.ToArrayOf(new[] { TestNodeManager.NamespaceUri });
+
+    public INodeManager Create(IServerInternal server, ApplicationConfiguration configuration) =>
+        new TestNodeManager(server, configuration);
 }

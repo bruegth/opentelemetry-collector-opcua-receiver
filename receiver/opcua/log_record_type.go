@@ -12,8 +12,8 @@ import (
 	"github.com/gopcua/opcua/ua"
 )
 
-// LogRecordExtObj is the Go representation of a binary-encoded OPC UA Part 26 LogRecord
-// returned by OPC UA servers implementing the GetRecords method.
+// LogRecordExtObj represents the legacy test-server encoding of a LogRecord.
+// Unlike the standard Part 26 encoding, it has no optional-field mask.
 //
 // Binary field order (OPC UA Part 26 §5.4, all optional fields present when mask=0x1F):
 //
@@ -57,7 +57,7 @@ type LogRecordExtObj struct {
 
 // LogRecordExtObjTypeID is the NodeID used to identify LogRecord ExtensionObjects.
 // Must match the TypeId used by the OPC UA server.
-// The C# test server uses ExpandedNodeId(5001) which encodes as ns=0;i=5001.
+// The former C# test server used ExpandedNodeId(5001), encoded as ns=0;i=5001.
 var LogRecordExtObjTypeID = ua.NewNumericNodeID(0, 5001)
 
 func init() {

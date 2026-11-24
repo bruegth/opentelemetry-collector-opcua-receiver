@@ -91,8 +91,8 @@ func (c *MockClient) GetRecordsWithSeverity(
 
 	// Create a CallMethodRequest
 	req := &ua.CallMethodRequest{
-		ObjectID: ua.NewNumericNodeID(0, 2042),  // Server object
-		MethodID: ua.NewNumericNodeID(0, 11550), // GetRecords method
+		ObjectID: ua.NewNumericNodeID(0, 19372), // ServerLog object
+		MethodID: ua.NewNumericNodeID(0, 19373), // ServerLog GetRecords method
 		InputArguments: []*ua.Variant{
 			ua.MustVariant(startTime),
 			ua.MustVariant(endTime),

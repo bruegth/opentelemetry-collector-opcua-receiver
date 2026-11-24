@@ -10,9 +10,9 @@ This project follows the OpenTelemetry Community [Code of Conduct](https://githu
 
 ### Prerequisites
 
-- Go 1.25.1 or later
+- Go 1.26.0 or later
 - Git
-- OpenTelemetry Collector Builder (OCB) v0.145.0+
+- OpenTelemetry Collector Builder (OCB) v0.166.0
 - Basic understanding of OpenTelemetry Collector architecture
 - Familiarity with OPC UA (helpful but not required)
 

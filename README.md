@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua.svg)](https://pkg.go.dev/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
 [![Go version](https://img.shields.io/github/go-mod/go-version/bruegth/opentelemetry-collector-opcua-receiver?filename=%2Freceiver%2Fopcua%2Fgo.mod)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Stability: Alpha](https://img.shields.io/badge/stability-alpha-orange.svg)](CONTRIBUTING.md)
+[![Stability: Beta](https://img.shields.io/badge/stability-beta-yellow.svg)](CONTRIBUTING.md)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)](https://goreportcard.com/report/github.com/bruegth/opentelemetry-collector-opcua-receiver/receiver/opcua)
 
 An OpenTelemetry Collector receiver for collecting logs from OPC UA servers implementing the LogObject specification (OPC UA Part 26).
@@ -16,14 +16,15 @@ This project provides a custom receiver for the OpenTelemetry Collector that ena
 
 ### Status
 
-**Alpha**: This receiver is in alpha stage. The API may change and the implementation is being actively developed.
+**Beta**: The receiver is under active development and has known Part 26 limitations; see the [review notes](PART26_REVIEW.md) before production use.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Go 1.25.1 or later
-- OpenTelemetry Collector Builder (OCB) v0.145.0 or later
+- Go 1.26.0 or later
+- OpenTelemetry Collector Builder (OCB) v0.166.0
+- .NET 10 SDK (for building the test server)
 - OPC UA server (optional for development/testing)
 
 ### Installation
@@ -98,7 +99,7 @@ receivers:
       password: ${env:OPCUA_PASSWORD}
     log_object_paths:
       - Objects/ServerLog
-      - Objects/DeviceSets/Device1/Logs
+      - "ns=2;s=DeviceLog"
     collection_interval: 30s
     max_records_per_call: 1000
     filter:
@@ -137,7 +138,8 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 │   ├── scraper.go           # Log collection logic
 │   ├── client.go            # OPC UA client wrapper
 │   ├── get_records.go       # GetRecords method call & parsing
-│   ├── log_record_type.go   # ExtensionObject codec for LogRecord
+│   ├── log_records_data_type.go # Standard Part 26 binary decoder
+│   ├── log_record_type.go   # Legacy LogRecord ExtensionObject codec
 │   ├── transformer.go       # Data transformation
 │   ├── *_test.go            # Unit tests
 │   ├── testdata/            # Test utilities & mock server
@@ -154,12 +156,13 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
 ├── builder-config.yaml      # Collector builder configuration
 ├── config.yaml              # Runtime configuration
 ├── go.work                  # Go workspace file
+├── opentelemetry-collector-opcua-receiver.slnx # Test server solution
 └── README.md                # This file
 ```
 
 ### Setting Up Development Environment
 
-1. **Install Go 1.25.1+**
+1. **Install Go 1.26.0+**
    ```bash
    # Verify installation
    go version
@@ -186,6 +189,16 @@ For complete configuration options, see [receiver/opcua/README.md](receiver/opcu
    - Place in project root
 
 ### Building
+
+#### Build the OPC UA Test Server
+
+The .NET 10 test server uses OPC Foundation SDK 2.0.2 and returns the standard
+Part 26 `LogRecordsDataType`. Responses contain at most three records per page
+to exercise continuation-point handling.
+
+```bash
+dotnet build opentelemetry-collector-opcua-receiver.slnx
+```
 
 #### Build the Receiver Module Only
 
@@ -299,7 +312,7 @@ For more detail, see [receiver/opcua/README.md](receiver/opcua/README.md#trouble
 - [x] Subscription-based log collection (in addition to polling)
 - [ ] Enhanced filtering capabilities
 - [ ] Performance metrics
-- [ ] Beta stability
+- [x] Beta stability
 
 ## License
 
